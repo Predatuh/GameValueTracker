@@ -68,6 +68,14 @@ class Updater:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
+            if e.code in (401, 403) and self.token:
+                # a public repo doesn't need a token - a stale / wrong one shouldn't block updates
+                headers.pop("Authorization", None)
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
+                        return resp.read()
+                except urllib.error.HTTPError:
+                    pass
             if e.code in (401, 403, 404):
                 raise RuntimeError(f"GitHub said {e.code}. Check the repo name and that your token can read it "
                                    "(private repo: fine-grained token with Contents: Read).") from None

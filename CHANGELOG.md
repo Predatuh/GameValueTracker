@@ -1,5 +1,8 @@
 # What's new
 
+## 2026.10.23.2
+- Updates work with a public repo even if an old/wrong GitHub token is still filled in.
+
 ## 2026.10.23.1
 - Over-the-air updates: the tracker checks your GitHub repo on start and updates itself (Updates... button).
 - Searches stop by themselves when another round can't help, then test the leftovers automatically (2-3 actions instead of 20+).

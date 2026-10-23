@@ -12,3 +12,4 @@ dist/
 tests/*.json
 tests/*.iso
 *.new
+tests/gui_*/

@@ -1,0 +1,12 @@
+# vehicles
+cars
+400, landstal, landstal, car, LANDSTAL, LANDSTK, null, normal, 10, 0, 0, -1, 0.768, 0.768, 0
+401, bravura, bravura, car, BRAVURA, BRAVURA, null, poorfamily, 10, 0, 0, -1, 0.7, 0.7, 0
+402, buffalo, buffalo, car, BUFFALO, BUFFALO, null, executive, 10, 0, 0, -1, 0.7, 0.7, 0
+403, linerun, linerun, car, LINERUN, LINERUN, null, worker, 10, 0, 0, -1, 1.1, 1.1, 0
+404, peren, peren, car, PEREN, PEREN, null, poorfamily, 10, 0, 0, -1, 0.7, 0.7, 0
+405, sentinel, sentinel, car, SENTINL, SENTINL, null, richfamily, 10, 0, 0, -1, 0.7, 0.7, 0
+406, dumper, dumper, mtruck, DUMPER, DUMPER, null, worker, 10, 0, 0, -1, 1.1, 1.1, 0
+411, infernus, infernus, car, INFERNUS, INFERNUS, null, executive, 10, 0, 0, -1, 0.7, 0.7, 0
+432, rhino, rhino, car, RHINO, RHINO, null, ignore, 10, 0, 0, -1, 1.1, 1.1, 0
+end

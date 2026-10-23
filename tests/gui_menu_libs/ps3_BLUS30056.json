@@ -1,0 +1,154 @@
+{
+  "game_title": "Mercenaries 2: World in Flames",
+  "game": {
+    "title": "NCAA Football 2006",
+    "serial": "SLUS-21214",
+    "key": "ps2_SLUS-21214",
+    "found": true
+  },
+  "genre": "open_world",
+  "library": [
+    {
+      "kind": "value",
+      "name": "Ammo",
+      "category": "Weapons",
+      "addr": 65536,
+      "type": "u32",
+      "freeze": false,
+      "freeze_value": null,
+      "where": "00010000"
+    },
+    {
+      "kind": "value",
+      "name": "Money",
+      "category": "Money",
+      "addr": 65552,
+      "type": "u32",
+      "freeze": false,
+      "freeze_value": null,
+      "where": "00010010"
+    },
+    {
+      "kind": "value",
+      "name": "Vehicle ID",
+      "category": "Spawn",
+      "addr": 65568,
+      "type": "u32",
+      "freeze": false,
+      "freeze_value": null,
+      "where": "00010020"
+    }
+  ],
+  "cheats": [
+    {
+      "name": "Infinite ammo",
+      "entry": "Ammo",
+      "mode": "freeze",
+      "value": null,
+      "hotkey": [
+        "L1",
+        "R1"
+      ],
+      "activator": null,
+      "group": "Cheats"
+    },
+    {
+      "name": "Money +10000",
+      "entry": "Money",
+      "mode": "add",
+      "value": 10000,
+      "hotkey": [
+        "L2",
+        "R2"
+      ],
+      "activator": null,
+      "group": "Cheats"
+    },
+    {
+      "name": "Set money to 0",
+      "entry": "Money",
+      "mode": "set",
+      "value": 0,
+      "hotkey": [
+        "F3"
+      ],
+      "activator": null,
+      "group": "Cheats"
+    },
+    {
+      "name": "infernus",
+      "entry": "Vehicle ID",
+      "mode": "set",
+      "value": 411,
+      "hotkey": [],
+      "group": "Spawn: Vehicles",
+      "activator": null,
+      "hold": 0.0
+    },
+    {
+      "name": "rhino",
+      "entry": "Vehicle ID",
+      "mode": "set",
+      "value": 432,
+      "hotkey": [],
+      "group": "Spawn: Vehicles",
+      "activator": null,
+      "hold": 0.0
+    }
+  ],
+  "spawn": {
+    "lists": [
+      {
+        "kind": "Vehicles",
+        "source": "data/vehicles.ide",
+        "entries": [
+          [
+            400,
+            "landstal"
+          ],
+          [
+            401,
+            "bravura"
+          ],
+          [
+            402,
+            "buffalo"
+          ],
+          [
+            403,
+            "linerun"
+          ],
+          [
+            404,
+            "peren"
+          ],
+          [
+            405,
+            "sentinel"
+          ],
+          [
+            406,
+            "dumper"
+          ],
+          [
+            411,
+            "infernus"
+          ],
+          [
+            432,
+            "rhino"
+          ]
+        ]
+      }
+    ],
+    "learned": {
+      "Vehicles": {
+        "433": "Tank 2"
+      }
+    },
+    "observed": [
+      400
+    ]
+  },
+  "pad": null
+}

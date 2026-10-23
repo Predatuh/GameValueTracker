@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+tracker_settings.json
+tracker_library.json
+tracker_errors.log
+libraries/
+_previous_version/
+predictor_findings_*.json
+build/
+dist/
+*.spec
+tests/*.json
+tests/*.iso
+*.new

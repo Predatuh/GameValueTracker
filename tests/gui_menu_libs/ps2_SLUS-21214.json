@@ -1,0 +1,29 @@
+{
+  "game_title": "NCAA Football 2006",
+  "game": {
+    "title": "Mercenaries 2: World in Flames",
+    "serial": "BLUS30056",
+    "key": "ps3_BLUS30056",
+    "found": true
+  },
+  "genre": "football",
+  "library": [
+    {
+      "kind": "value",
+      "name": "Kick power",
+      "category": "Kicking",
+      "addr": 256,
+      "type": "u32",
+      "freeze": false,
+      "freeze_value": null,
+      "where": "00000100"
+    }
+  ],
+  "cheats": [],
+  "spawn": {
+    "lists": [],
+    "learned": {},
+    "observed": []
+  },
+  "pad": null
+}

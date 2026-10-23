@@ -1,0 +1,152 @@
+"""
+updater.py - over-the-air updates from your GitHub repo.
+
+The repo holds the tracker's files plus a VERSION file. On start the app compares its own VERSION
+with the repo's; if the repo is newer it can download the repo, copy the program files over the
+old ones (keeping your settings, libraries and logs), and restart.
+
+Private repo: give it a GitHub token that can read the repo (fine-grained token, "Contents: Read").
+"""
+import io
+import json
+import os
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.request
+import zipfile
+
+API = "https://api.github.com"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# only program files are ever replaced - your settings / libraries / logs are never touched
+UPDATABLE = (".py", ".pyw", ".md", ".bat", ".txt")
+KEEP = ("tracker_settings.json", "tracker_library.json", "tracker_errors.log")
+SKIP_DIRS = ("tests", ".github", "libraries")
+
+
+def local_version(app_dir=APP_DIR):
+    try:
+        with open(os.path.join(app_dir, "VERSION"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return "0"
+
+
+def _key(v):
+    """'2026.10.23.4' -> (2026, 10, 23, 4) so versions compare properly."""
+    out = []
+    for part in str(v).strip().lstrip("v").split("."):
+        num = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(num) if num else 0)
+    return tuple(out)
+
+
+def is_newer(remote, local):
+    return _key(remote) > _key(local)
+
+
+class Updater:
+    def __init__(self, repo, token="", branch="main", api=API, app_dir=APP_DIR):
+        self.repo = (repo or "").strip().strip("/")
+        self.token = (token or "").strip()
+        self.branch = branch or "main"
+        self.api = api.rstrip("/")
+        self.app_dir = app_dir
+
+    @property
+    def ready(self):
+        return "/" in self.repo
+
+    def _req(self, url, accept="application/vnd.github+json", timeout=20):
+        headers = {"Accept": accept, "User-Agent": "GameValueTracker-updater",
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403, 404):
+                raise RuntimeError(f"GitHub said {e.code}. Check the repo name and that your token can read it "
+                                   "(private repo: fine-grained token with Contents: Read).") from None
+            raise RuntimeError(f"GitHub error {e.code}") from None
+
+    def remote_version(self):
+        raw = self._req(f"{self.api}/repos/{self.repo}/contents/VERSION?ref={self.branch}",
+                        accept="application/vnd.github.raw")
+        return raw.decode("utf-8", "replace").strip()
+
+    def changelog(self):
+        try:
+            raw = self._req(f"{self.api}/repos/{self.repo}/contents/CHANGELOG.md?ref={self.branch}",
+                            accept="application/vnd.github.raw")
+            return raw.decode("utf-8", "replace")
+        except Exception:
+            return ""
+
+    def check(self):
+        """(update available?, remote version, local version)"""
+        remote, local = self.remote_version(), local_version(self.app_dir)
+        return is_newer(remote, local), remote, local
+
+    def download(self):
+        return self._req(f"{self.api}/repos/{self.repo}/zipball/{self.branch}", timeout=120)
+
+    def install(self, zip_bytes):
+        """Copy the new program files in. Old ones go to _previous_version/ first. Returns files updated."""
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        if not names:
+            raise RuntimeError("The download was empty.")
+        root = names[0].split("/", 1)[0] + "/"          # GitHub wraps everything in one folder
+        files = {}
+        for n in names:
+            rel = n[len(root):] if n.startswith(root) else n
+            if not rel or rel.split("/", 1)[0] in SKIP_DIRS or "/" in rel:
+                continue                                  # only top-level program files
+            if rel in KEEP or not (rel.endswith(UPDATABLE) or rel == "VERSION"):
+                continue
+            if ".." in rel or rel.startswith(("/", "\\")):
+                continue
+            files[rel] = zf.read(n)
+        if not any(r.endswith(".py") for r in files) or "VERSION" not in files:
+            raise RuntimeError("That download doesn't look like the tracker (no program files / VERSION).")
+        backup = os.path.join(self.app_dir, "_previous_version")
+        os.makedirs(backup, exist_ok=True)
+        changed = []
+        for rel, data in files.items():
+            dst = os.path.join(self.app_dir, rel)
+            old = None
+            if os.path.exists(dst):
+                with open(dst, "rb") as f:
+                    old = f.read()
+                if old == data:
+                    continue
+                shutil.copy2(dst, os.path.join(backup, rel))
+            tmp = dst + ".new"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, dst)
+            changed.append(rel)
+        return changed
+
+    def update(self):
+        avail, remote, local = self.check()
+        if not avail:
+            return [], remote
+        return self.install(self.download()), remote
+
+
+def restart():
+    """Start the tracker again (with no console window) and quit this one."""
+    import subprocess
+    app = os.path.join(APP_DIR, "GameValueTracker.pyw")
+    exe = sys.executable
+    if os.name == "nt" and exe.lower().endswith("python.exe") and os.path.exists(exe[:-10] + "pythonw.exe"):
+        exe = exe[:-10] + "pythonw.exe"
+    flags = 0x08000000 if os.name == "nt" else 0          # CREATE_NO_WINDOW
+    subprocess.Popen([exe, app], cwd=APP_DIR, creationflags=flags)
+    time.sleep(0.3)
+    os._exit(0)

@@ -23,6 +23,8 @@ import updater
 import gameinfo
 import modmenu
 import spawner
+import theme
+import menubuilder
 
 APP_TITLE = "Game Value Tracker"
 BOOST_TRIGGERS = ["the ball reverses direction (velocity values)",
@@ -96,6 +98,8 @@ def ask_form(parent, title, fields, extra=None):
     dlg.bind("<Escape>", lambda e: dlg.destroy())
     if fields:
         widgets[fields[0][0]][1].focus_set()
+    theme.restyle(dlg)
+    theme.dark_titlebar(dlg)
     dlg.grab_set()
     parent.wait_window(dlg)
     return result or None
@@ -108,7 +112,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title(APP_TITLE)
-        root.geometry("1150x780")
+        root.geometry("1200x860")
         root.minsize(900, 600)
 
         self.ps2 = core.Pcsx2()
@@ -172,13 +176,19 @@ class App:
 
     # ======================= UI ===========================================
     def _build_ui(self):
-        style = ttk.Style()
-        try:
-            style.theme_use("vista")
-        except tk.TclError:
-            pass
+        self.dark_var = tk.BooleanVar(value=self.settings.get("theme", "light") == "dark")
+        theme.apply(self.root, "dark" if self.dark_var.get() else "light")
 
-        top = ttk.Frame(self.root, padding=(8, 6))
+        head = ttk.Frame(self.root, style="Header.TFrame", padding=(14, 8))
+        head.pack(fill="x")
+        ttk.Label(head, text="🎮  " + APP_TITLE, style="Header.TLabel").pack(side="left")
+        self.version_lbl = ttk.Label(head, text=f"v{updater.local_version(APP_DIR)}", style="HeaderMuted.TLabel")
+        self.version_lbl.pack(side="left", padx=10, pady=(4, 0))
+        ttk.Button(head, text="Updates...", style="Header.TButton", command=self.update_dialog).pack(side="right")
+        ttk.Checkbutton(head, text="Dark mode", variable=self.dark_var, style="Header.TCheckbutton",
+                        command=self.toggle_theme).pack(side="right", padx=12)
+
+        top = ttk.Frame(self.root, padding=(12, 8, 12, 2))
         top.pack(fill="x")
         ttk.Label(top, text="Game:").pack(side="left")
         self.proc_var = tk.StringVar()
@@ -190,7 +200,7 @@ class App:
         self.sys_var = tk.StringVar(value=core.PROFILES["auto"]["label"])
         ttk.Combobox(top, textvariable=self.sys_var, width=24, state="readonly",
                      values=[p["label"] for p in core.PROFILES.values()]).pack(side="left", padx=(2, 4))
-        ttk.Button(top, text="Attach", command=self.attach).pack(side="left")
+        ttk.Button(top, text="Attach", style="Accent.TButton", command=self.attach).pack(side="left")
         ttk.Label(top, text="  Game type:").pack(side="left")
         self.genre_var = tk.StringVar(value=gameinfo.GENRES["other"]["label"])
         gb = ttk.Combobox(top, textvariable=self.genre_var, width=22, state="readonly",
@@ -201,10 +211,7 @@ class App:
         self.base_override = tk.StringVar()
         ttk.Entry(top, textvariable=self.base_override, width=14).pack(side="left")
         self.procs = []
-        ttk.Button(top, text="Updates...", command=self.update_dialog).pack(side="right")
-        self.version_lbl = ttk.Label(top, text=f"v{updater.local_version(APP_DIR)}", foreground="#666")
-        self.version_lbl.pack(side="right", padx=6)
-        self.conn_label = ttk.Label(self.root, text="Not attached", foreground="#b00", padding=(10, 0))
+        self.conn_label = ttk.Label(self.root, text="●  Not attached", foreground="#b00", padding=(14, 0, 14, 4))
         self.conn_label.pack(fill="x")
         self.update_bar = tk.Frame(self.root, background="#fef3c7")
         self.update_lbl = tk.Label(self.update_bar, text="", background="#fef3c7", font=("Segoe UI", 10, "bold"))
@@ -217,7 +224,7 @@ class App:
                   padx=10).pack(side="right", padx=4, pady=3)
 
         self.nb = ttk.Notebook(self.root)
-        self.nb.pack(fill="both", expand=True, padx=6, pady=4)
+        self.nb.pack(fill="both", expand=True, padx=10, pady=(2, 6))
         self._build_coach_tab()
         self._build_scanner_tab()
         self._build_recorder_tab()
@@ -229,8 +236,31 @@ class App:
         self._build_help_tab()
 
         self.status = tk.StringVar(value="Start your emulator or game, pick it in the Game list, then click Attach.")
-        ttk.Label(self.root, textvariable=self.status, relief="sunken", anchor="w",
-                  padding=(6, 2)).pack(fill="x", side="bottom")
+        ttk.Label(self.root, textvariable=self.status, style="Status.TLabel", anchor="w").pack(
+            fill="x", side="bottom", before=self.nb)
+        theme.restyle(self.root)
+
+    def _grid_coach_btns(self, keys):
+        """Result buttons in two columns, so they all fit next to the list."""
+        for btn in self.coach_btns.values():
+            btn.grid_forget()
+        for i, key in enumerate(keys):
+            self.coach_btns[key].grid(row=i // 2, column=i % 2, sticky="ew", padx=2, pady=1)
+
+    def toggle_theme(self):
+        """Dark mode on / off (remembered)."""
+        mode = "dark" if self.dark_var.get() else "light"
+        theme.apply(self.root, mode)
+        if hasattr(self, "r_tree"):
+            self.r_tree.tag_configure("best", background=theme.c("#d8f5d0"))
+        self.conn_label.configure(foreground=theme.c("#070" if self.ps2.attached else "#b00"))
+        if getattr(self, "rec_data", None) and getattr(self, "_last_plot", None):
+            try:
+                self._draw_plots(*self._last_plot)
+            except Exception:
+                pass
+        self.settings["theme"] = mode
+        self._save_settings(quiet=True)
 
     # ---------------- scanner tab ------------------------------------------
     def _build_scanner_tab(self):
@@ -314,19 +344,20 @@ class App:
         self.mode_var = tk.StringVar(value=MODE_CHOICES[0])
         ttk.Combobox(row, textvariable=self.mode_var, values=MODE_CHOICES, state="readonly",
                      width=34).pack(side="left", padx=4)
-        ttk.Button(row, text="Make a plan", command=self.make_plan).pack(side="left", padx=6)
+        ttk.Button(row, text="Make a plan", style="Accent.TButton", command=self.make_plan).pack(side="left", padx=6)
         self.mode_var.trace_add("write", lambda *a: setattr(self, "plan", None))
         self.examples_lbl = ttk.Label(tab, foreground="#666", text="")
         self.examples_lbl.pack(anchor="w")
 
         mid = ttk.Frame(tab)
         mid.pack(fill="x", pady=8)
-        self.plan_text = tk.Text(mid, height=9, width=70, wrap="word", state="disabled",
+        self.plan_text = tk.Text(mid, height=7, width=70, wrap="word", state="disabled",
                                  background="#f7f7f7", font=("Segoe UI", 9))
         self.plan_text.pack(side="left", fill="x", expand=True)
         side = ttk.Frame(mid)
         side.pack(side="left", fill="y", padx=8)
-        self.coach_start_btn = ttk.Button(side, text="Start  (shows the overlay)", command=self.coach_start)
+        self.coach_start_btn = ttk.Button(side, text="Start  (shows the overlay)", style="Accent.TButton",
+                                          command=self.coach_start)
         self.coach_start_btn.pack(fill="x", pady=2)
         ttk.Button(side, text="Start over (new search)", command=lambda: self.coach_start(fresh=True)).pack(fill="x", pady=2)
         ttk.Button(side, text="Stop", command=self.coach_stop).pack(fill="x", pady=2)
@@ -342,12 +373,12 @@ class App:
         res.pack(fill="both", expand=True)
         self.coach_tree = ttk.Treeview(res, columns=("type", "addr", "value", "note"), show="headings", height=8)
         for col, text, w in (("type", "Type", 70), ("addr", "Address", 110), ("value", "Live value", 160),
-                             ("note", "Notes", 520)):
+                             ("note", "Notes", 300)):
             self.coach_tree.heading(col, text=text)
             self.coach_tree.column(col, width=w, anchor="w")
-        self.coach_tree.pack(side="left", fill="both", expand=True)
         rb = ttk.Frame(res)
-        rb.pack(side="left", fill="y", padx=6)
+        rb.pack(side="right", fill="y", padx=(6, 0))      # buttons first: the list takes what's left
+        self.coach_tree.pack(side="left", fill="both", expand=True)
         self.coach_btns = {}
         for key, text, cmd in (("quick", "Add to library (name later)", self.coach_quick_add),
                                ("freeze", "Freeze / unfreeze", self.coach_toggle_freeze),
@@ -356,6 +387,7 @@ class App:
                                ("group", "Test them with me (freeze)", lambda: self.group_test_start("hold")),
                                ("speed", "Speed hack test (x3)", lambda: self.group_test_start("boost")),
                                ("hack", "Speed hack ON/OFF", self.speed_hack_toggle),
+                               ("topspeed", "Find top speed (better hack)", self.topspeed_start),
                                ("test", "Test: set value...", self.coach_test),
                                ("boost", "Send to Power boost", self.coach_to_boost),
                                ("rec", "Watch in Recorder", self.coach_to_recorder),
@@ -363,12 +395,12 @@ class App:
                                ("deep", "Deep test (ball hunts)", self.deep_start),
                                ("spawn", "Use as spawn ID", self.coach_to_spawn),
                                ("pexp", "Export predictor findings", self.predict_export)):
-            b = ttk.Button(rb, text=text, command=cmd)
-            b.pack(fill="x", pady=2)
+            b = ttk.Button(rb, text=text, command=cmd, style="Small.TButton")
             self.coach_btns[key] = b
+        self._grid_coach_btns(list(self.coach_btns))
 
+        self.coach_res = res
         zf = ttk.LabelFrame(tab, text="Predictor display", padding=6)
-        zf.pack(fill="x", pady=(8, 0))
         self.pred_frame = zf
         ttk.Label(zf, text="Strike zone size %").pack(side="left")
         self.zone_scale = tk.IntVar(value=100)
@@ -382,7 +414,8 @@ class App:
 
         st = ttk.LabelFrame(tab, text="AI brain (optional - any AI you have a key for; leave the key blank to use the "
                                       "built-in brain)", padding=6)
-        st.pack(fill="x", pady=(8, 0))
+        st.pack(fill="x", pady=(8, 0), side="bottom", before=res)       # always visible, the list shrinks
+        zf.pack(fill="x", pady=(8, 0), side="bottom", before=res)
         self.claude_frame = st
         ttk.Label(st, text="Brain").pack(side="left")
         prov = self.settings.get("provider", "anthropic")
@@ -622,6 +655,8 @@ class App:
             self.overlay.set("Stopped.", "", done=False)
         if not quiet:
             self.coach_status.configure(text="Stopped.")
+            if self.builder is not None and not self.builder.done:
+                self._build_stuck("stopped.")
 
     def _coach_next(self):
         co = self.coach
@@ -720,6 +755,11 @@ class App:
             winsound.MessageBeep()
         except Exception:
             pass
+        if self.builder is not None and not self.builder.done:
+            if co.failed:
+                return self._build_stuck("lost it - nothing matched every step.")
+            if self.builder.current["kind"] == "spawn" and 1 <= len(res) <= co.r["target"]:
+                return self._build_hit(res[0][0], res[0][1])      # IDs: the search itself is the test
         if not co.failed and 1 <= len(res) <= 40:
             self.root.after(1500, self.auto_test_scan)
 
@@ -734,6 +774,8 @@ class App:
                 ("Test with me (freeze)", lambda: self.group_test_start("hold"), "#60a5fa")]
         if self._speedish():
             btns.append(("Speed hack test", lambda: self.group_test_start("boost"), "#f59e0b"))
+        if self.builder is not None:
+            btns.append(("Skip this one", self.build_skip, "#f97316"))
         btns.append(("Stop", self.coach_stop, "#9ca3af"))
         sub = ("Keep narrowing = a few more rounds of the same steps (keeps what's left).  Test with me = I hold "
                "half of them still and you tell me if the game reacted - about "
@@ -825,6 +867,8 @@ class App:
                    "do the full action, and stop fully. Click 'Start over' to try again.")
             self.overlay.set(msg, "", close=True)
             self.coach_status.configure(text=msg)
+            if self.builder is not None:
+                self._build_stuck("lost it - stand completely still before pressing ], then do the full action.")
             return
         if n <= 300:
             self._show_pulse_results()
@@ -992,6 +1036,11 @@ class App:
             self.overlay.set(msg, "", close=True)
         self.coach_status.configure(text=msg)
         self.gt = None
+        if self.builder is not None:
+            if gt.found:
+                self._build_hit(gt.found[1], gt.found[0])
+            else:
+                self._build_stuck("none of them did it.")
 
     def speed_hack_toggle(self):
         sel = self.coach_tree.selection()
@@ -1028,6 +1077,392 @@ class App:
         self.say(msg)
         if self.overlay is not None and self.overlay.winfo_exists():
             self.overlay.flash(msg[:70])
+
+    # ---- better speed hack: find the TOP SPEED setting and raise it ----
+    def topspeed_start(self, speed=None, factor=3.0, on_done=None):
+        """speed = (addr, type) of the speed value (default: the selected result)."""
+        if not self.need_attach():
+            return
+        if speed is None:
+            sel = self.coach_tree.selection()
+            if not sel or sel[0] not in self.coach_rows:
+                messagebox.showinfo(APP_TITLE, "Find your run / car speed first (AI Coach: \"run speed\"), select it "
+                                    "in the results, then click this.")
+                return
+            vt, a = self.coach_rows[sel[0]]
+            speed = (a, vt)
+        self.coach_stop(quiet=True)
+        self.ts = {"speed": speed, "factor": float(factor or 3.0), "on_done": on_done, "token": self.coach_token}
+        self._show_overlay()
+        self.pending_answer = (self._ts_go, self.topspeed_stop)
+        self.overlay.choices("Better speed hack. STAND STILL, then press ] and RUN (or floor it) - keep going the whole "
+                             "time until I say stop (about 30-60 s).",
+                             "I measure your top speed, then find the game's top-speed setting by myself.",
+                             [("Go  ]", self._ts_go, "#22c55e"), ("Stop", self.topspeed_stop, "#6b7280")])
+        self.coach_status.configure(text="Top speed finder: stand still, then press ] and run.")
+
+    def topspeed_stop(self):
+        self.pending_answer = None
+        self.coach_token += 1                 # the worker restores everything and stops
+        if self.overlay is not None and self.overlay.winfo_exists():
+            self.overlay.set("Stopped - everything is back to normal.", "", close=True)
+
+    def _ts_go(self):
+        ts = getattr(self, "ts", None)
+        if not ts or ts["token"] != self.coach_token:
+            return
+        self.pending_answer = None
+        a, vt = ts["speed"]
+        tok = self.coach_token
+        still = self.snap()
+        self.overlay.set("RUN! Keep going...", "measuring your top speed", done=False)
+
+        def alive():
+            return tok == self.coach_token and self.ps2.attached
+
+        def speed():
+            v = self.ps2.read(a, vt)
+            return None if v is None or v != v else abs(float(v))
+
+        def work():
+            samples, t0 = [], time.perf_counter()
+            while time.perf_counter() - t0 < 6.0 and alive():
+                samples.append(speed())
+                time.sleep(1 / 30)
+            if not alive():
+                return
+            moving = self.snap()
+            top = core.TopSpeedHunt.top_speed(samples[len(samples) * 2 // 3:])
+            if top <= 1e-4:
+                return self.ui(self._ts_done, None, "Your speed value didn't move - run the whole time after "
+                                                    "pressing ]. Click 'Find top speed' to try again.")
+            cands = core.TopSpeedHunt.find_candidates(still, moving, top, (a, vt))
+            if not cands:
+                return self.ui(self._ts_done, None, "No number in memory equals your top speed, so this game "
+                                                    "works it out differently. The normal 'Speed hack ON/OFF' still "
+                                                    "works.")
+            hunt = core.TopSpeedHunt((a, vt), top, cands)
+            self.ui(self.overlay.set, f"KEEP RUNNING! Testing {len(cands):,} numbers that equal your top speed "
+                                      f"({top:.3g}).", hunt.status(), False)
+            orig = {}
+            try:
+                for _ in range(60):
+                    if hunt.done or not alive():
+                        break
+                    group = hunt.next_group()
+                    waited = time.perf_counter()
+                    while alive() and (speed() or 0) < 0.7 * top:      # wait until they're moving again
+                        if time.perf_counter() - waited > 1.0:
+                            self.ui(self.overlay.set, "KEEP RUNNING (or driving) - I need you at full speed.",
+                                    hunt.status(), False)
+                        if time.perf_counter() - waited > 40:
+                            return self.ui(self._ts_done, None, "Stopped: you weren't moving for a long time.")
+                        time.sleep(0.05)
+                    orig = {(ga, gvt): self.ps2.read(ga, gvt) for ga, gvt in group}
+                    orig = {k: v for k, v in orig.items() if v is not None and v == v}
+                    seen, t1 = [], time.perf_counter()
+                    while time.perf_counter() - t1 < 1.6 and alive():
+                        for (ga, gvt), v in orig.items():
+                            self.ps2.write(ga, gvt, hunt.boosted(v, gvt))
+                        seen.append(speed())
+                        time.sleep(1 / 30)
+                    for (ga, gvt), v in orig.items():
+                        self.ps2.write(ga, gvt, v)
+                    orig = {}
+                    verdict = hunt.judge(seen)
+                    hunt.answer(verdict)
+                    self.ui(self.overlay.set, "KEEP RUNNING!" if verdict is not None else
+                            "KEEP RUNNING - you slowed down, trying that again.", hunt.status(), False)
+                    if verdict:                       # let the speed come back down before the next test
+                        t2 = time.perf_counter()
+                        while alive() and (speed() or 0) > 1.15 * top and time.perf_counter() - t2 < 4:
+                            time.sleep(0.05)
+            finally:
+                for (ga, gvt), v in orig.items():
+                    self.ps2.write(ga, gvt, v)
+            if not alive():
+                return
+            if hunt.found:
+                self.ui(self._ts_done, hunt.found, "")
+            else:
+                self.ui(self._ts_done, None, "None of them raised your top speed - this game caps speed some other "
+                                             "way. The normal 'Speed hack ON/OFF' still works.")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ts_done(self, found, msg):
+        ts = getattr(self, "ts", None) or {}
+        on_done = ts.get("on_done")
+        if not found:
+            self.overlay.set(msg, "", close=True)
+            self.coach_status.configure(text=msg)
+            if on_done:
+                on_done(None)
+            return
+        a, vt = found
+        orig = self.ps2.read(a, vt)
+        speed_ent = next((e for e in self.library if e.get("kind") == "value" and
+                          (e["addr"], e["type"]) == tuple(ts["speed"])), None)
+        cat = speed_ent["category"] if speed_ent else ((self.plan or {}).get("category") or "Running")
+        ent = next((e for e in self.library if e.get("kind") == "value" and (e["addr"], e["type"]) == (a, vt)), None)
+        if ent is None:
+            name, n = "Top speed setting", 2
+            while any(e["name"] == name for e in self.library):
+                name, n = f"Top speed setting {n}", n + 1
+            ent = core.new_value_entry(name, cat, a, vt)
+            ent["normal"] = orig
+            self.library.append(ent)
+            self.library_changed()
+        f = ts.get("factor", 3.0)
+        val = orig * f if vt == "float" else int(round(orig * f))
+        c = {"name": f"Top speed x{f:g}", "entry": ent["name"], "mode": "freeze", "value": val, "hotkey": [],
+             "group": "Vehicle" if cat == "Vehicle" else "Movement", "activator": None,
+             "on": on_done is None, "_manual": on_done is None}
+        self.cheats = [x for x in self.cheats if not (x.get("entry") == ent["name"] and x.get("mode") == "freeze")]
+        self.cheats.append(c)
+        self.save_library(self.lib_path, quiet=True)
+        self.refresh_cheat_tree()
+        self.preview_pnach()
+        msg = (f"FOUND the top-speed setting: {core.fa(a, vt)} (normal {core.fmt_value(vt, orig)}). 'Top speed "
+               f"x{f:g}' is ON now - run! It's in your mod menu and exports as a code.")
+        self.coach_status.configure(text=msg)
+        self.say(msg)
+        if on_done:
+            on_done(c)
+            return
+        self.overlay.choices(msg, "", [("Turn it OFF", lambda: self._ts_toggle(c), "#f59e0b"),
+                                       ("Close", self.overlay.close, "#6b7280")])
+
+    def _ts_toggle(self, c):
+        c["on"] = not c.get("on")
+        c["_manual"] = c["on"]
+        if not c["on"]:
+            self._restore_normal(c)
+        self.overlay.flash(f"{c['name']}: {'ON' if c['on'] else 'OFF'}")
+
+    def _restore_normal(self, c):
+        """Settings like top speed don't change back by themselves: put the normal value back."""
+        ent = next((e for e in self.library if e["name"] == c.get("entry")), None)
+        if ent and ent.get("kind") == "value" and ent.get("normal") is not None and self.ps2.attached:
+            self.ps2.write(ent["addr"], ent["type"], ent["normal"])
+            # the cheat loop may have been mid-write: once more, a moment later
+            self.root.after(150, lambda: c.get("on") or self.ps2.write(ent["addr"], ent["type"], ent["normal"]))
+
+    # ---- "build my mod menu": one sentence -> every cheat found and added ----
+    def build_plan(self, then=None):
+        text = self.build_var.get().strip()
+        if not text:
+            messagebox.showinfo(APP_TITLE, "Type the cheats you want first, e.g. infinite ammo, god mode, super speed.")
+            return
+        b = self.brain()
+        hint = (self.game or {}).get("title", "")
+        self.build_lbl.configure(text=f"{b.name} is planning your menu..." if b.usable else "Planning...")
+
+        def show(items, source, note):
+            self.build_items = items
+            lines = [f"YOUR MENU ({len(items)} cheats, brain: {source}) - click 'Build it' to start:"]
+            lines += [f"  {i + 1}. " + menubuilder.describe_item(it) for i, it in enumerate(items)]
+            if note:
+                lines.append(note)
+            self.build_lbl.configure(text="\n".join(lines))
+            if then:
+                then()
+
+        def fail(e):
+            self.build_lbl.configure(text=str(e))
+            messagebox.showinfo(APP_TITLE, str(e))
+
+        if not b.usable:
+            try:
+                show(*menubuilder.plan_menu(text, None, hint))
+            except ValueError as e:
+                fail(e)
+            return
+
+        def work():
+            try:
+                self.ui(show, *menubuilder.plan_menu(text, b, hint))
+            except ValueError as e:
+                self.ui(fail, e)
+        threading.Thread(target=work, daemon=True).start()
+
+    def build_start(self):
+        if not self.need_attach():
+            return
+        if not self.build_items:
+            if self.build_var.get().strip():
+                return self.build_plan(then=self.build_start)
+            messagebox.showinfo(APP_TITLE, "Type the cheats you want first, e.g. infinite ammo, god mode, super speed.")
+            return
+        self.builder = menubuilder.MenuBuild(self.build_items)
+        self._show_overlay()
+        self._build_next()
+
+    def build_stop(self):
+        if self.builder is None:
+            return
+        self.builder = None
+        self.coach_stop(quiet=True)
+        self.topspeed_stop()
+        self.build_lbl.configure(text="Stopped building. The cheats made so far are in the list below.")
+
+    def build_skip(self):
+        if self.builder is None or self.builder.done:
+            return
+        self.coach_stop(quiet=True)
+        self.coach_token += 1
+        self.builder.skip("you skipped it")
+        self._build_next()
+
+    def _build_status(self, text):
+        self.build_lbl.configure(text=text)
+        self.coach_status.configure(text=text)
+
+    def _build_next(self):
+        bld = self.builder
+        if bld is None:
+            return
+        if bld.done:
+            return self._build_finish()
+        it = bld.current
+        ent = menubuilder.find_in_library(it, self.library)
+        if ent is not None and it["kind"] != "spawn":
+            self._build_make(it, ent, how="had")
+            return
+        if it["kind"] == "topspeed":
+            sp = next((e for e in self.library if e.get("kind") == "value" and
+                       any(w in e["name"].lower() for w in ("speed", "velocity")) and "top" not in e["name"].lower()),
+                      None)
+            if sp is not None:
+                return self._build_topspeed(it, (sp["addr"], sp["type"]))
+        say = (f"Building your mod menu ({bld.progress()}): {it['name']}. First I find {it['find']!r} - follow the "
+               "steps in this window.")
+        self._build_status(say)
+        self._show_overlay()
+        self.overlay.set(say, "starting in a moment...", done=False)
+        self.ask_var.set(it["find"])
+        self.mode_var.set(MODE_CHOICES[0])
+        self.plan = None
+        tok = self.coach_token
+
+        def go():
+            if self.builder is not bld or tok != self.coach_token:
+                return
+            if self.plan is None:
+                return self.root.after(300, go)          # the AI is still writing the plan
+            self.coach_start(fresh=True)
+        self.make_plan()
+        self.root.after(1800, go)
+
+    def _build_hit(self, vt, addr):
+        """The coach / a test found the item's value."""
+        bld = self.builder
+        if bld is None or bld.done:
+            return False
+        it = bld.current
+        ent = next((e for e in self.library if e.get("kind") == "value" and e["addr"] == addr and e["type"] == vt),
+                   None)
+        if ent is None:
+            base = it["find"] if it["kind"] != "spawn" else f"{it.get('spawn_kind', 'Vehicles')[:-1]} ID"
+            base = base[:1].upper() + base[1:]
+            name, n = base, 2
+            while any(e["name"] == name for e in self.library):
+                name, n = f"{base} {n}", n + 1
+            cat = "Spawn" if it["kind"] == "spawn" else ((self.plan or {}).get("category") or it.get("group") or "Other")
+            ent = core.new_value_entry(name, cat, addr, vt)
+            self.library.append(ent)
+            self.library_changed()
+            self._refresh_hit_sources()
+        if it["kind"] == "topspeed":
+            self.root.after(1500, lambda: self._build_topspeed(it, (addr, vt)))
+            return True
+        self.root.after(1500, lambda: self._build_make(it, ent))
+        return True
+
+    def _build_topspeed(self, it, speed):
+        bld = self.builder
+
+        def done(cheat):
+            if self.builder is not bld:
+                return
+            if cheat is None:
+                self._build_stuck("Couldn't find the top-speed setting for this game.")
+                return
+            cheat["name"] = it["name"]
+            cheat["hotkey"] = list(it.get("hotkey") or [])
+            self.save_library(self.lib_path, quiet=True)
+            self.refresh_cheat_tree()
+            bld.found("made")
+            self._build_after(f"Got it! '{it['name']}' is in your mod menu.")
+        self.topspeed_start(speed, factor=it.get("value") or 3.0, on_done=done)
+
+    def _build_make(self, it, ent, how="made"):
+        bld = self.builder
+        if bld is None or bld.done:
+            return
+        if it["kind"] == "spawn":
+            kind = it.get("spawn_kind", "Vehicles")
+            self.spawn_kind.set(kind)
+            self.spawn_id.set(ent["name"])
+            bld.found(how, "spawn")
+            return self._build_after(f"Saved your {kind[:-1].lower()} ID as '{ent['name']}'. Name the "
+                                     f"{kind.lower()} in the Spawn menu tab later to spawn them from the menu.")
+        c = menubuilder.cheat_for(it, ent)
+        if not any(x.get("entry") == c["entry"] and x.get("mode") == c["mode"] and x.get("name") == c["name"]
+                   for x in self.cheats):
+            self.cheats.append(c)
+        self.save_library(self.lib_path, quiet=True)
+        self.refresh_cheat_tree()
+        self.preview_pnach()
+        bld.found(how)
+        self._build_after(f"{'Already had' if how == 'had' else 'Got it!'} '{it['name']}' is in your mod menu"
+                          f" ({self._does(c)}).")
+
+    def _build_after(self, msg):
+        bld = self.builder
+        nxt = bld.current if bld else None
+        sub = f"Next: {nxt['name']} - get ready." if nxt else "That was the last one."
+        self._show_overlay()
+        self.overlay.set(msg, sub, done=False)
+        self._build_status(msg + "  " + sub)
+        self.root.after(2500, self._build_next)
+
+    def _build_stuck(self, msg):
+        """A search ended without a sure answer: let the player choose (in game) how to go on."""
+        bld = self.builder
+        if bld is None or bld.done:
+            return
+        it = bld.current
+
+        def retry():
+            self._build_next()
+
+        def use_top():
+            item = next(iter(self.coach_rows.values()), None)
+            if item is None:
+                return self._build_stuck("Nothing to use - try again or skip.")
+            self._build_hit(item[0], item[1])
+
+        btns = [("Try again", retry, "#22c55e")]
+        if self.coach_rows and it["kind"] != "topspeed":
+            btns.append(("Use the best guess", use_top, "#60a5fa"))
+        btns.append(("Skip this one", self.build_skip, "#f97316"))
+        btns.append(("Stop building", self.build_stop, "#6b7280"))
+        self._show_overlay()
+        self.overlay.choices(f"{it['name']}: {msg}", "Mod menu builder - what next?", btns)
+        self._build_status(f"{it['name']}: {msg}")
+
+    def _build_finish(self):
+        bld = self.builder
+        self.builder = None
+        msg = bld.summary()
+        self.nb.select(self.cheat_tab)
+        self._build_status(msg + " Start the mod menu and open it in game with " +
+                           modmenu.combo_text(self._menu_keys()["open"]) + ".")
+        btns = [("Close", self.overlay.close, "#6b7280")]
+        if not self.menu_on and any(not c.get("code") for c in self.cheats):
+            btns.insert(0, ("Start mod menu", lambda: (self.overlay.close(), self.menu_toggle()), "#22c55e"))
+        self._show_overlay()
+        self.overlay.choices(msg, "Everything is also in Cheats & mod menu (hotkeys, export as codes).", btns)
 
     # ---- event mode: Auto hunt ----
     def hunt_start(self):
@@ -1521,6 +1956,11 @@ class App:
             self.coach_tree.selection_set("0")
         self.overlay.set(msg, "", done=False, close=True)
         self.coach_status.configure(text=msg)
+        if self.builder is not None:
+            if real:
+                self._build_hit(real[0]["type"], real[0]["addr"])
+            else:
+                self._build_stuck(msg)
 
     # ---- "not sure" -> look at the screen, then try the neighbours ----
     def _confirm_start(self, kept, ranked, round2=False):
@@ -1643,6 +2083,8 @@ class App:
                "the Recorder with an event that fits.")
         self.overlay.set(msg, "", close=True)
         self.coach_status.configure(text=msg)
+        if self.builder is not None:
+            self._build_stuck("couldn't pin it down (none of them changed what's on screen).")
 
     # ---- result actions ----
     def _coach_selected(self):
@@ -2004,7 +2446,7 @@ class App:
                                values=(f"{core.fa(w['addr'], w['type'])}",
                                        f"{w['name']}: {self._kind_label(r['kind'])}  ({r.get('details', '')})",
                                        f"{r['score']:.2f}"))
-        self.r_tree.tag_configure("best", background="#d8f5d0")
+        self.r_tree.tag_configure("best", background=theme.c("#d8f5d0"))
         self._draw_plots(t, traces, d["marks"])
         if self.rec_results and self.rec_results[0]["score"] >= 0.25:
             best = d["watch"][self.rec_results[0]["key"]]
@@ -2021,6 +2463,7 @@ class App:
         return core.KIND_LABELS.get(kind) or core.EVENT_LABELS.get(kind, kind)
 
     def _draw_plots(self, t, traces, marks):
+        self._last_plot = (t, traces, marks)
         c = self.plot
         c.delete("all")
         c.update_idletasks()
@@ -2032,10 +2475,11 @@ class App:
             y0 = 10 + row * row_h
             w = self.rec_data["watch"][key]
             res = next((r for r in self.rec_results if r["key"] == key), None)
-            c.create_text(8, y0 + 18, anchor="w", text=f"{core.fa(w['addr'])}", font=("Consolas", 10, "bold"))
-            c.create_text(8, y0 + 36, anchor="w", fill="#555",
+            c.create_text(8, y0 + 18, anchor="w", text=f"{core.fa(w['addr'])}", font=("Consolas", 10, "bold"),
+                          fill=theme.pal()["text"])
+            c.create_text(8, y0 + 36, anchor="w", fill=theme.pal()["muted"],
                           text=(res["kind"] if res else ""), font=("Segoe UI", 9))
-            c.create_rectangle(left, y0, width, y0 + row_h - 12, outline="#ddd")
+            c.create_rectangle(left, y0, width, y0 + row_h - 12, outline=theme.pal()["border"])
             y = traces[key]
             ok = np.isfinite(y)
             for m in marks:
@@ -2053,7 +2497,7 @@ class App:
                             y0 + (row_h - 14) - (y[i] - lo) / span * (row_h - 16)]
             if len(pts) >= 4:
                 c.create_line(*pts, fill="#2563eb" if row else "#16a34a", width=2 if row == 0 else 1)
-            c.create_text(width - 4, y0 + 2, anchor="ne", fill="#888", font=("Segoe UI", 8),
+            c.create_text(width - 4, y0 + 2, anchor="ne", fill=theme.pal()["muted"], font=("Segoe UI", 8),
                           text=f"{lo:.3g} .. {hi:.3g}")
         c.configure(scrollregion=(0, 0, width, 20 + len(order) * row_h))
 
@@ -2236,12 +2680,12 @@ class App:
             warn = f"\nWARNING: {self.boost_warn}" if self.boost_warn else ""
             self.boost_info.configure(text=f"BOOST ON  x{self.booster.factor:g}   hits boosted: "
                                            f"{self.booster.count}{last}{warn}",
-                                      foreground="#b45309" if warn else "#070")
+                                      foreground=theme.c("#b45309" if warn else "#070"))
             self.root.after(150, self._boost_tick)
         else:
             self.boost_btn.configure(text="Start boost  \\")
             n = self.booster.count if self.booster else 0
-            self.boost_info.configure(text=f"Off  ({n} hits boosted)", foreground="#000")
+            self.boost_info.configure(text=f"Off  ({n} hits boosted)", foreground=theme.c("#000"))
 
     # ---------------- ratings tab ------------------------------------------
     def _build_ratings_tab(self):
@@ -2354,6 +2798,28 @@ class App:
         self.cheat_tab = tab
         self.nb.add(tab, text="Cheats & mod menu")
 
+        bf = ttk.LabelFrame(tab, text="Build my mod menu - say what you want, the AI finds it all with you", padding=8)
+        bf.pack(fill="x", pady=(0, 8))
+        br = ttk.Frame(bf)
+        br.pack(fill="x")
+        self.build_var = tk.StringVar()
+        be = ttk.Entry(br, textvariable=self.build_var, font=("Segoe UI", 11))
+        be.pack(side="left", fill="x", expand=True)
+        be.bind("<Return>", lambda e: self.build_plan())
+        self.build_var.trace_add("write", lambda *a: setattr(self, "build_items", None))
+        ttk.Button(br, text="Plan it", command=self.build_plan).pack(side="left", padx=(6, 2))
+        self.build_btn = ttk.Button(br, text="Build it  (shows the overlay)", style="Accent.TButton",
+                                    command=self.build_start)
+        self.build_btn.pack(side="left", padx=2)
+        ttk.Button(br, text="Skip this one", command=self.build_skip).pack(side="left", padx=2)
+        ttk.Button(br, text="Stop", command=self.build_stop).pack(side="left", padx=2)
+        self.build_lbl = ttk.Label(bf, foreground="#666", justify="left", wraplength=1000, text=(
+            'e.g.  "infinite ammo on L1+R1, god mode, super speed, moon jump, spawn a tank"  - I find every value '
+            "with you one at a time (same overlay as the AI Coach), make each cheat and put it in the mod menu."))
+        self.build_lbl.pack(anchor="w", pady=(6, 0))
+        self.builder = None
+        self.build_items = None
+
         d = ttk.Frame(tab)
         d.pack(fill="x")
         ttk.Label(d, text="Describe a cheat:", font=("Segoe UI", 10, "bold")).pack(side="left")
@@ -2371,8 +2837,10 @@ class App:
         ttk.Entry(top, textvariable=self.game_title, width=34).pack(side="left", padx=4)
         for text, cmd in (("Add cheat...", self.add_cheat), ("Set hotkey...", self.set_cheat_hotkey),
                           ("Remove", self.remove_cheat), ("Add code patch...", self.add_code_patch),
+                          ("Try code patch live", self.code_patch_live),
                           ("Preview codes", self.preview_pnach), ("Export cheats...", self.export_pnach)):
-            ttk.Button(top, text=text, command=cmd).pack(side="left", padx=3)
+            ttk.Button(top, text=text, command=cmd,
+                       style="Accent.TButton" if cmd == self.export_pnach else "TButton").pack(side="left", padx=3)
 
         self.ch_tree = ttk.Treeview(tab, columns=("does", "hotkey", "group", "act"), show="tree headings", height=9)
         self.ch_tree.heading("#0", text="Cheat")
@@ -2389,7 +2857,7 @@ class App:
         mf.pack(fill="x", pady=8)
         r1 = ttk.Frame(mf)
         r1.pack(fill="x")
-        self.menu_btn = ttk.Button(r1, text="Start mod menu", command=self.menu_toggle)
+        self.menu_btn = ttk.Button(r1, text="Start mod menu", style="Accent.TButton", command=self.menu_toggle)
         self.menu_btn.pack(side="left")
         ttk.Label(r1, text="   Open menu with:").pack(side="left")
         self.menu_open_lbl = ttk.Label(r1, text="", font=("Segoe UI", 10, "bold"))
@@ -2554,10 +3022,10 @@ class App:
         try:
             self.ps2.attach(manual, pid=self._picked_pid(), profile=prof)
         except Exception as e:
-            self.conn_label.configure(text="Not attached", foreground="#b00")
+            self.conn_label.configure(text="●  Not attached", foreground=theme.c("#b00"))
             messagebox.showerror(APP_TITLE, str(e))
             return
-        self.conn_label.configure(text="Attached: " + self.ps2.describe(), foreground="#070")
+        self.conn_label.configure(text="●  Attached: " + self.ps2.describe(), foreground=theme.c("#070"))
         moved = 0
         for e in self.library:                    # saved addresses -> this session's memory layout
             if e.get("kind") == "value" and e.get("where"):
@@ -3400,7 +3868,7 @@ class App:
         except tk.TclError:
             pass
         if g["predict"]:
-            self.pred_frame.pack(fill="x", pady=(8, 0), before=self.claude_frame)
+            self.pred_frame.pack(fill="x", pady=(8, 0), side="bottom", before=self.coach_res)
         else:
             self.pred_frame.pack_forget()
         ball = "boost" in g["tabs"]
@@ -3408,13 +3876,9 @@ class App:
             self.hit_frame.pack(fill="x", before=self.coach_status)
         else:
             self.hit_frame.pack_forget()
-        show = {"quick", "freeze", "save", "more", "group", "speed", "hack", "test", "rec", "auto"} | ({"boost", "deep"} if ball else set()) | \
+        show = {"quick", "freeze", "save", "more", "group", "speed", "hack", "topspeed", "test", "rec", "auto"} | ({"boost", "deep"} if ball else set()) | \
                ({"spawn"} if "spawn" in g["tabs"] else set()) | ({"pexp"} if g["predict"] else set())
-        for key, btn in self.coach_btns.items():
-            btn.pack_forget()
-        for key, btn in self.coach_btns.items():
-            if key in show:
-                btn.pack(fill="x", pady=2)
+        self._grid_coach_btns([k for k in self.coach_btns if k in show])
         evs = gameinfo.events_for(self.genre)
         labels = [core.EVENT_RECIPES[k]["label"] for k in evs]
         self.rec_event_box.configure(values=labels)
@@ -3655,23 +4119,32 @@ class App:
         self.preview_pnach()
 
     def add_code_patch(self):
-        if self._profile() != "ps2":
-            messagebox.showinfo(APP_TITLE, "Code patches are made for PCSX2 (.pnach). For other emulators use "
-                                "their own debugger / patch system; for PC games use Cheat Engine's "
-                                "\"Replace with code that does nothing\" on the instruction.")
+        prof = self._profile()
+        if prof not in core.CODE_SYSTEMS:
+            messagebox.showinfo(APP_TITLE, "Code patches work for PS2, PS3, GameCube/Wii, PSP and PS1 games. For PC "
+                                "games use Cheat Engine's \"Replace with code that does nothing\" on the instruction.")
             return
+        cpu, nop, lo, hi, how = core.CODE_SYSTEMS[prof]
+        sysname = core.PROFILES[prof]["label"]
+
+        def extra(frm, widgets, row):
+            ttk.Label(frm, text=f"{sysname}: {cpu} code, NOP = {nop:08X}.\nWhere to get the address:  {how}",
+                      foreground="#666", wraplength=460, justify="left").grid(
+                row=row, column=0, columnspan=2, sticky="w", pady=(8, 0))
+            return row + 1
+
         r = ask_form(self.root, "Add code patch", [
-            ("name", "Patch name", "entry", "No ball slowdown", None),
-            ("addr", "Instruction address (hex, from PCSX2 debugger)", "entry", "", None),
-            ("value", "New instruction (hex) - 00000000 = NOP (skip it)", "entry", "00000000", None),
-        ])
+            ("name", "Patch name", "entry", "No ammo used", None),
+            ("addr", f"Instruction address (hex, {lo:08X} - {hi - 1:08X})", "entry", "", None),
+            ("value", f"New instruction (hex) - {nop:08X} = NOP (skip it)", "entry", f"{nop:08X}", None),
+        ], extra=extra)
         if not r or not r["name"]:
             return
         try:
-            cheat = {"name": r["name"], "code": True, "entry": "(code)",
-                     "addr": int(r["addr"].replace("0x", ""), 16), "value": int(r["value"] or "0", 16),
-                     "activator": None}
-            core.cheat_lines(cheat, self.library)
+            cheat = {"name": r["name"], "code": True, "entry": "(code)", "system": prof,
+                     "addr": int(r["addr"].replace("0x", "").replace("0X", ""), 16),
+                     "value": int((r["value"] or f"{nop:X}").replace("0x", ""), 16), "activator": None}
+            core.code_patch_lines(cheat)
         except ValueError as e:
             messagebox.showerror(APP_TITLE, str(e) if "Code patch" in str(e) else "Address and value must be hex.")
             return
@@ -3679,11 +4152,58 @@ class App:
         self.save_library(self.lib_path, quiet=True)
         self.refresh_cheat_tree()
         self.preview_pnach()
+        self.say(f"Added code patch '{cheat['name']}'. 'Try code patch live' tests it now; Export makes it stick.")
+
+    LIVE_NOTES = {
+        "ps3": "RPCS3 compiles the game's code ahead of time, so a live patch usually only shows with "
+               "Configuration > CPU > PPU Decoder = Interpreter. The sure way: Export cheats (patch.yml).",
+        "gcwii": "Dolphin may keep running its saved copy of that code. If nothing changes, Export cheats "
+                 "(Gecko code) - that one always works.",
+        "ps2": "PCSX2 may keep running its saved copy of that code. If nothing changes, Export cheats (.pnach).",
+        "psp": "PPSSPP may keep running its saved copy of that code. If nothing changes, Export cheats (CWCheat).",
+        "ps1": "DuckStation may keep running its saved copy of that code. If nothing changes, Export cheats.",
+    }
+
+    def code_patch_live(self):
+        """Write (or undo) the selected code patch straight into the running game."""
+        sel = self.ch_tree.selection()
+        c = self.cheats[int(sel[0])] if sel else None
+        if c is None or not c.get("code"):
+            messagebox.showinfo(APP_TITLE, "Pick a code patch in the list first.")
+            return
+        if not self.need_attach():
+            return
+        if c.get("system", "ps2") != self._profile():
+            messagebox.showinfo(APP_TITLE, "That patch is for a different system than the game you're attached to.")
+            return
+        try:
+            off = core.code_patch_offset(self.ps2, c)
+        except ValueError as e:
+            messagebox.showerror(APP_TITLE, f"Can't reach that address: {e}")
+            return
+        if c.get("_live_orig") is not None:
+            self.ps2.write(off, "u32", c.pop("_live_orig"))
+            self.say(f"Undid '{c['name']}' - the original instruction is back.")
+        else:
+            orig = self.ps2.read(off, "u32")
+            if orig is None or not self.ps2.write(off, "u32", int(c["value"])):
+                messagebox.showerror(APP_TITLE, "Couldn't write there - is the game running?")
+                return
+            c["_live_orig"] = int(orig)
+            self.say(f"'{c['name']}' is patched live (was {int(orig):08X}). Click again to undo. "
+                     + self.LIVE_NOTES.get(c.get("system", "ps2"), ""))
+        self.refresh_cheat_tree()
 
     def remove_cheat(self):
         sel = self.ch_tree.selection()
         if not sel:
             return
+        c = self.cheats[int(sel[0])]
+        if c.get("code") and c.get("_live_orig") is not None and self.ps2.attached:
+            try:
+                self.ps2.write(core.code_patch_offset(self.ps2, c), "u32", c["_live_orig"])
+            except ValueError:
+                pass
         del self.cheats[int(sel[0])]
         self.save_library(self.lib_path, quiet=True)
         self.refresh_cheat_tree()
@@ -3691,7 +4211,9 @@ class App:
 
     def _does(self, c):
         if c.get("code"):
-            return f"CODE at {c['addr']:08X} = {c['value']:08X}"
+            sysname = core.PROFILES.get(c.get("system", "ps2"), {}).get("label", "PS2").split(" (")[0]
+            return (f"{sysname} CODE at {c['addr']:08X} = {c['value']:08X}"
+                    + ("   [LIVE NOW]" if c.get("_live_orig") is not None else ""))
         target = c["entry"] + (f" › {c['field']} ({'all players' if c.get('record', 'all') == 'all' else '#' + str(c['record'])})"
                                if c.get("field") else "")
         mode = c.get("mode", "freeze")
@@ -3717,7 +4239,8 @@ class App:
         out = []
         for c in self.cheats:
             if c.get("code"):
-                out.append(c)
+                if c.get("system", "ps2") == self._profile():
+                    out.append(c)
             elif c.get("mode", "freeze") in ("freeze", "set") and c.get("value") is not None \
                     and not str(c.get("group", "")).startswith("Spawn"):
                 out.append(c)
@@ -3731,8 +4254,12 @@ class App:
                 "they run from the in-game mod menu.\n" if skipped else "")
         try:
             if self._profile() != "ps2":
-                self.pnach_text.insert("1.0", core.export_codes(self.ps2, cheats, self.library,
-                                                                self.game_title.get())[0] + note)
+                text = core.export_codes(self.ps2, cheats, self.library, self.game_title.get())[0]
+                codes = [c for c in cheats if c.get("code")]
+                if self._profile() == "ps3" and codes and any(not c.get("code") for c in cheats):
+                    text += "\n# RPCS3 patch for the code patches (Export cheats installs it):\n" + \
+                            core.rpcs3_patch_yml(codes, self.game_title.get())
+                self.pnach_text.insert("1.0", text + note)
                 return
             self.pnach_text.insert("1.0", core.build_pnach(self.game_title.get(), cheats, self.library) + note)
         except ValueError as e:
@@ -3746,6 +4273,10 @@ class App:
             messagebox.showinfo(APP_TITLE, "No cheats that can become codes yet (add a 'keep it at' or 'set to' "
                                 "cheat with a value). Everything works live in the mod menu though.")
             return
+        if self._profile() == "ps3" and any(c.get("code") for c in self._exportable()):
+            self.export_rpcs3_patch()
+            if not any(not c.get("code") for c in self._exportable()):
+                return
         if self._profile() != "ps2":
             return self.export_other()
         r = ask_form(self.root, "Game CRC", [("crc", "Game CRC (8 hex digits, shown in PCSX2 "
@@ -3771,14 +4302,49 @@ class App:
             f.write(text)
         self.say(f"Wrote {path}. In PCSX2: right-click the game → Properties → Cheats, tick them on.")
 
+    def _rpcs3_dir(self):
+        exe = core.process_exe_path(getattr(self.ps2, "pid", 0) or 0) if core.IS_WIN else ""
+        return os.path.dirname(exe) if exe else self.settings.get("rpcs3_dir", "")
+
+    def export_rpcs3_patch(self):
+        """Code patches -> RPCS3 patch file. Installs it into RPCS3 when it can find RPCS3 and the game's hash."""
+        codes = [c for c in self._exportable() if c.get("code")]
+        rdir = self._rpcs3_dir()
+        info = core.rpcs3_log_info(rdir) if rdir else {"hash": "", "serial": "", "version": "", "title": ""}
+        title = info["title"] or (self.game or {}).get("title") or self.game_title.get()
+        serial = info["serial"] or (self.game or {}).get("serial", "")
+        body = core.rpcs3_patch_yml(codes, title, serial, info["version"], info["hash"], header=False)
+        if rdir and info["hash"]:
+            try:
+                path = core.rpcs3_install_patch(rdir, body, info["hash"])
+                messagebox.showinfo(APP_TITLE, f"Added {len(codes)} patch(es) to RPCS3 ({path}).\n\nIn RPCS3: Manage > "
+                                    "Game Patches, find your game, tick the patches, click Save, then restart "
+                                    "the game.")
+                return path
+            except (ValueError, OSError) as e:
+                note = f"(Couldn't add it to RPCS3 by itself: {e}.)\n\n"
+        else:
+            note = ("(I couldn't read the game's PPU hash from RPCS3's log - boot the game in RPCS3 first, or open "
+                    "RPCS3.log and replace PPU-PUT_THE_HASH... with the 'PPU executable hash' line.)\n\n")
+        safe = "".join(ch for ch in self.game_title.get() if ch.isalnum() or ch in " -_").strip() or "patches"
+        path = filedialog.asksaveasfilename(initialdir=rdir or APP_DIR, initialfile=safe + "_patch.yml",
+                                            defaultextension=".yml", filetypes=[("RPCS3 patch", "*.yml")])
+        if not path:
+            return
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("Version: 1.2\n\n" + body)
+        messagebox.showinfo(APP_TITLE, f"Wrote {path}\n\n{note}In RPCS3: Manage > Game Patches, drag this file onto "
+                            "that window, tick the patches, Save, restart the game.")
+        return path
+
     def export_other(self):
         try:
             text, ext, how = core.export_codes(self.ps2, self._exportable(), self.library, self.game_title.get())
         except ValueError as e:
             messagebox.showerror(APP_TITLE, str(e))
             return
-        if any(c.get("code") for c in self.cheats):
-            how += "\n\n(Code patches are PS2-only and were left out.)"
+        if ext == ".yml":
+            return self.export_rpcs3_patch()
         safe = "".join(ch for ch in self.game_title.get() if ch.isalnum() or ch in " -_").strip() or "cheats"
         path = filedialog.asksaveasfilename(initialdir=APP_DIR, initialfile=safe + ext, defaultextension=ext)
         if not path:
@@ -3939,6 +4505,8 @@ class App:
                 self.menu_ov.hide()
             for c in self.cheats:
                 if not c.get("_manual"):
+                    if c.get("on"):
+                        self._restore_normal(c)
                     c["on"] = False
             self.pad_lbl.configure(text="Mod menu stopped.")
             return
@@ -3985,6 +4553,8 @@ class App:
             ov.show() if obj else ov.hide()
         elif kind == "toggle":
             c = obj
+            if not c.get("on"):
+                self._restore_normal(c)
             if c.get("on") and c.get("value") is None:
                 c["_hold"] = [self.ps2.read(o, vt) for o, vt, _ in core.cheat_writes(c, self.library)[0]]
             ov.toast(f"{c['name']}: {'ON' if c.get('on') else 'OFF'}")
@@ -4416,15 +4986,16 @@ class App:
             self.boost_toggle()
         elif action == "rec_toggle":
             self.rec_toggle()
+        elif action in ("rec_mark", "zone_ball") and getattr(self, "pending_answer", None):
+            # a YES / NO question is up: ] = YES, ' = NO (checked before the predictor's ' key)
+            yes_cb, no_cb = self.pending_answer
+            self.pending_answer = None
+            (yes_cb if action == "rec_mark" else no_cb)()
         elif action in ("zone_strike", "zone_ball"):
             if self.predicting:
                 self.zone_label(action == "zone_strike")
             else:
                 return
-        elif action in ("rec_mark", "zone_ball") and getattr(self, "pending_answer", None):
-            yes_cb, no_cb = self.pending_answer
-            self.pending_answer = None
-            (yes_cb if action == "rec_mark" else no_cb)()
         elif action == "rec_mark":
             if self.pulsing:
                 self.pulse_mark()
@@ -4459,6 +5030,7 @@ class MenuOverlay(tk.Toplevel):
     def __init__(self, app):
         super().__init__(app.root)
         self.app = app
+        self._theme_skip = True
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         try:
@@ -4511,6 +5083,7 @@ class MenuOverlay(tk.Toplevel):
     def toast(self, text):
         if self.toast_win is None or not self.toast_win.winfo_exists():
             self.toast_win = tk.Toplevel(self.app.root)
+            self.toast_win._theme_skip = True
             self.toast_win.overrideredirect(True)
             self.toast_win.attributes("-topmost", True)
             self.toast_lbl = tk.Label(self.toast_win, text="", fg="black", bg=self.ON, padx=12, pady=6,
@@ -4541,6 +5114,7 @@ class Overlay(tk.Toplevel):
     def __init__(self, app):
         super().__init__(app.root)
         self.app = app
+        self._theme_skip = True
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         try:
@@ -4776,6 +5350,14 @@ Every game has its own library, cheats and spawn lists (saved in the "libraries"
 games in the emulator and the tool switches with you.
 Tip: for PC games use windowed or borderless mode so the overlay can sit on top.
 
+BUILD MY MOD MENU (one sentence)  - top of the "Cheats & mod menu" tab
+Type the whole menu: "infinite ammo on L1+R1, god mode, super speed, moon jump, spawn a tank".
+"Plan it" shows what it understood (an AI brain plans it when you have a key - it knows the game).
+"Build it": the overlay walks you through finding each value one at a time (same steps as the AI
+Coach), makes the cheat and puts it in the mod menu. Values already in your library are reused.
+Stuck on one? The overlay offers Try again / Use the best guess / Skip this one. At the end click
+"Start mod menu" and open it in game with L3 + R1. "top speed x3" uses the top-speed finder below.
+
 CHEATS & MOD MENU  - "Cheats & mod menu" tab
 Type what you want: "infinite ammo on L1+R1", "money +10000 on L2+R2", "double car speed on F3",
 "health 999", "set wanted level to 0 with R3". The value has to be in the Library first.
@@ -4789,6 +5371,7 @@ Controller: Xbox-style pads work directly (PS4/PS5 pads through Steam or DS4Wind
 pads, find the controller value in the game's memory and use "Learn game pad...".
 "Export cheats..." also writes the right code format for the system: .pnach (PCSX2), Gecko codes
 (Dolphin), CWCheat (PPSSPP), GameShark (DuckStation), or a Cheat Engine table (PC games, RPCS3).
+Code patches export too - for RPCS3 they go straight into RPCS3's patch list (see CODE PATCH).
 Codes can only hold a value, so add/multiply and spawn items stay in the live mod menu.
 
 SPAWN MENU  - "Spawn menu" tab (vehicles, weapons, items)
@@ -4835,6 +5418,11 @@ as it finds the one the game really uses - usually 2-3 actions from you in total
   Speed hack test - same, but it multiplies them x3; YES if you're super fast.
 Found it? "Speed hack ON/OFF" makes you x3 fast right away (capped at 3x your normal top speed) and
 adds it to Cheats & mod menu, where you can give it a hotkey or change the multiplier.
+BETTER SPEED HACK - "Find top speed (better hack)": select your speed value, click it, stand still,
+press ] and RUN (or floor it) and keep going ~30-60 s. The tool measures your top speed, then finds
+the game's own top-speed setting by itself (it doubles groups of matching numbers and watches if you
+go faster). Then "Top speed x3" is ON: the game itself lets you go 3x faster, no cap, and it exports
+as a code. Switching it off puts the normal top speed back.
 The overlay is draggable. If the game is in exclusive fullscreen it may hide the overlay -
 use borderless/windowed mode.
 
@@ -4868,17 +5456,25 @@ group in half and tries again on the next hit, until one value is left (about 10
 few thousand values). Everything is put back after every test. When it finds it, it fills Power
 boost and picks the right trigger for you.
 
-CODE PATCH (when even the deep test finds nothing)  - Cheat/menu maker, "Add code patch..."
-Then the game's CODE caps or resets the value (e.g. "if power > 100 then power = 100").
-Instead of changing a value you change that instruction:
-1. In PCSX2: Debug > Open Debugger. In the Memory view go to the value's address (e.g. the ball
-   speed), right-click it > "Add breakpoint (write)". Hit the ball - the game pauses on the
-   instruction that writes it. Note the instruction's address (left column in the disassembly).
-2. Cheat/menu maker > "Add code patch...", paste that address, keep 00000000 (NOP = skip the
-   instruction), Export. The pnach makes PCSX2 patch the code itself, so it sticks (writing code
-   live from this tool doesn't, because PCSX2 caches compiled code).
-3. Test it. If the game crashes or acts weird, you NOP'd the wrong line - remove that patch and try
+CODE PATCH (when even the deep test finds nothing)  - Cheats & mod menu, "Add code patch..."
+Then the game's CODE caps or resets the value (e.g. "if power > 100 then power = 100", or "ammo =
+ammo - 1"). Instead of changing a value you change that instruction. Works for PS2 (PCSX2), PS3
+(RPCS3), GameCube/Wii (Dolphin), PSP (PPSSPP) and PS1 (DuckStation).
+1. Find the instruction that writes the value with the emulator's debugger - the "Add code patch"
+   window tells you how for your emulator (set a WRITE breakpoint on the value's address, do the
+   thing in game, the debugger stops on the instruction). RPCS3's debugger can't stop on writes:
+   get the address from a patch guide or from Ghidra.
+2. "Add code patch...", paste the address, keep the NOP it fills in (00000000 on PS2/PSP/PS1,
+   60000000 on PS3/GameCube/Wii = skip the instruction).
+3. "Try code patch live" writes it into the running game right away (click again to undo). The
+   emulator may keep running its own saved copy of the code, so if nothing changes:
+4. "Export cheats..." makes it stick: .pnach (PCSX2), Gecko + Dolphin patch lines, CWCheat, GameShark.
+   RPCS3: it reads the game's PPU hash from RPCS3's log and adds the patch to RPCS3 by itself - then
+   in RPCS3 open Manage > Game Patches, tick it, Save, and restart the game.
+5. Test it. If the game crashes or acts weird, you NOP'd the wrong line - remove that patch and try
    the next write instruction instead. Keep one change at a time.
+
+DARK MODE: tick "Dark mode" at the top right. It's remembered.
 
 NOT SURE IF IT'S A FLOAT OR A BYTE?
 Scanner: pick "any type (all 4)" - byte, u16, u32 and float are scanned side by side. Results show

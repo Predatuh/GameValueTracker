@@ -1111,10 +1111,7 @@ def cheat_lines(cheat, library):
     """
     if cheat.get("code"):
         # code patch: overwrite one 32-bit MIPS instruction (00000000 = NOP = "skip this line")
-        a = int(cheat["addr"])
-        if a % 4 or not (0 <= a < 0x02000000):
-            raise ValueError("Code patch address must be a PS2 address that is a multiple of 4")
-        return [f"patch=1,EE,{a:08X},word,{int(cheat['value']) & 0xFFFFFFFF:08X}"]
+        return code_patch_lines(dict(cheat, system="ps2"))
     entry = next((e for e in library if e["name"] == cheat["entry"]), None)
     if entry is None:
         raise ValueError(f"Library entry '{cheat['entry']}' not found")
@@ -1151,6 +1148,161 @@ def build_pnach(game_title, cheats, library):
         parts.extend(cheat_lines(c, library))
         parts.append("")
     return "\n".join(parts)
+
+
+# --------------------------------------------------------------------------
+# Code patches: replace one CPU instruction in the game ("NOP" = skip that line of code)
+# --------------------------------------------------------------------------
+# system -> (CPU, NOP instruction, lowest / highest code address, where to find the address)
+CODE_SYSTEMS = {
+    "ps2":   ("MIPS", 0x00000000, 0x00000000, 0x02000000,
+              "PCSX2: Debug > Open Debugger > Breakpoints > New > Memory, tick Write, type the value's "
+              "address. Play until it stops - the highlighted line is the instruction."),
+    "ps1":   ("MIPS", 0x00000000, 0x80000000, 0x80200000,
+              "DuckStation: Debug > CPU Debugger, right-click the value in the memory view > Add write "
+              "watchpoint. Play until it stops - the highlighted line is the instruction."),
+    "psp":   ("MIPS", 0x00000000, 0x08000000, 0x0A000000,
+              "PPSSPP: Debug > Disassembly (or the web debugger), add a memory breakpoint on the value's "
+              "address with Write ticked. Play until it stops - copy the instruction's address."),
+    "ps3":   ("PowerPC", 0x60000000, 0x00010000, 0x40000000,
+              "RPCS3: get the instruction address from a patch guide / the RPCS3 wiki, or from Ghidra with "
+              "the PS3 loader (search for the code that writes your value). RPCS3's debugger can't stop on "
+              "a write."),
+    "gcwii": ("PowerPC", 0x60000000, 0x80000000, 0x81800000,
+              "Dolphin: Options > Configuration > Interface > Show Debugging UI. View > Memory, right-click "
+              "the value > Set write breakpoint (or Breakpoints > New > Memory, Write). Play until it "
+              "stops - the Code view shows the instruction."),
+}
+
+
+def code_nop(system):
+    return CODE_SYSTEMS.get(system, CODE_SYSTEMS["ps2"])[1]
+
+
+def check_code_addr(system, addr):
+    """Raises ValueError (plain words) if addr can't be an instruction address on that system."""
+    if system not in CODE_SYSTEMS:
+        raise ValueError("Code patches work for PS2, PS3, GameCube/Wii, PSP and PS1 games. For PC games use "
+                         "Cheat Engine's \"Replace with code that does nothing\".")
+    cpu, _, lo, hi, _ = CODE_SYSTEMS[system]
+    if addr % 4:
+        raise ValueError(f"Code patch address must be a multiple of 4 ({cpu} instructions are 4 bytes)")
+    if not lo <= addr < hi:
+        raise ValueError(f"Code patch address must be between {lo:08X} and {hi - 1:08X} on this system")
+
+
+def code_patch_lines(cheat):
+    """The code patch in the attached system's own cheat format."""
+    system = cheat.get("system", "ps2")
+    a, v = int(cheat["addr"]), int(cheat["value"]) & 0xFFFFFFFF
+    check_code_addr(system, a)
+    if system == "ps2":
+        return [f"patch=1,EE,{a:08X},word,{v:08X}"]
+    if system == "gcwii":                                  # Gecko 04 = 32-bit write
+        return [f"{0x04000000 | (a & 0x01FFFFFF):08X} {v:08X}"]
+    if system == "psp":                                    # CWCheat 2 = 32-bit write
+        return [f"_L 0x2{(a - 0x08800000) & 0x0FFFFFFF:07X} 0x{v:08X}"]
+    if system == "ps1":                                    # GameShark has 16-bit writes: two halves
+        g = a & 0x1FFFFF
+        return [f"80{g:06X} {v & 0xFFFF:04X}", f"80{g + 2:06X} {v >> 16:04X}"]
+    return [f"- [ be32, 0x{a:08X}, 0x{v:08X} ]"]           # ps3: RPCS3 patch.yml
+
+
+def dolphin_patch_lines(cheat):
+    """Dolphin's own patch format (Properties > Patches, or the game's .ini under [OnFrame])."""
+    return [f"0x{int(cheat['addr']):08X}:dword:0x{int(cheat['value']) & 0xFFFFFFFF:08X}"]
+
+
+def _yq(s):
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def rpcs3_patch_yml(patches, title, serial="", app_ver="", ppu_hash="", header=True):
+    """
+    RPCS3 patch file (Manage > Game Patches). patches = code patch cheats. RPCS3 matches a patch to the
+    game by the PPU hash (shown in RPCS3's log when the game boots: 'PPU executable hash: PPU-...').
+    """
+    key = ppu_hash or "PPU-PUT_THE_HASH_FROM_RPCS3_LOG_HERE"
+    out = ["Version: 1.2", ""] if header else []
+    out.append(f"{key}:")
+    for c in patches:
+        out += [f"  {_yq(c['name'])}:",
+                "    Games:",
+                f"      {_yq(title or 'Game')}:",
+                f"        {serial or 'All'}: [ {app_ver or 'All'} ]",
+                '    Author: "Game Value Tracker"',
+                '    Notes: "Made with Game Value Tracker"',
+                "    Patch Version: 1.0",
+                "    Patch:",
+                "      " + code_patch_lines(dict(c, system="ps3"))[0]]
+    return "\n".join(out) + "\n"
+
+
+def rpcs3_log_info(rpcs3_dir):
+    """What RPCS3's log says about the running game: {'hash', 'serial', 'version', 'title'} (any may be '')."""
+    import re as _re
+    info = {"hash": "", "serial": "", "version": "", "title": ""}
+    for name in ("RPCS3.log", os.path.join("log", "RPCS3.log")):
+        p = os.path.join(rpcs3_dir or "", name)
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - 8_000_000))          # the end is enough (latest boot)
+                text = f.read()
+        except OSError:
+            continue
+        for k, pat in (("hash", r"PPU executable hash:\s*(PPU-[0-9a-fA-F]+)"),
+                       ("serial", r"\bSerial:\s*([A-Z]{4}\d{5})"),
+                       ("version", r"APP_VER=(\d+\.\d+)"),
+                       ("title", r"SYS: Title:\s*(.+)")):
+            m = _re.findall(pat, text)
+            if m:
+                info[k] = m[-1].strip()
+        break
+    return info
+
+
+def rpcs3_install_patch(rpcs3_dir, yml_body, ppu_hash):
+    """
+    Add the patches to RPCS3's patches/imported_patch.yml. Returns the file path. Raises ValueError if
+    that game already has patches in there (then drag the saved .yml onto RPCS3's patch manager instead).
+    """
+    pdir = os.path.join(rpcs3_dir, "patches")
+    path = os.path.join(pdir, "imported_patch.yml")
+    os.makedirs(pdir, exist_ok=True)
+    old = ""
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            old = f.read()
+    if ppu_hash and f"\n{ppu_hash}:" in "\n" + old:
+        raise ValueError("RPCS3 already has patches for this game in imported_patch.yml")
+    if not old.strip():
+        old = "Version: 1.2\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(old.rstrip("\n") + "\n\n" + yml_body)
+    return path
+
+
+def process_exe_path(pid):
+    """Full path of a running program's .exe (Windows), or ''."""
+    if not IS_WIN:
+        return ""
+    h = k32.OpenProcess(0x1000, False, pid)                  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        n = wt.DWORD(1024)
+        if k32.QueryFullProcessImageNameW(ctypes.c_void_p(h), 0, buf, ctypes.byref(n)):
+            return buf.value
+        return ""
+    finally:
+        k32.CloseHandle(h)
+
+
+def code_patch_offset(target, cheat):
+    """Where a code patch sits in the attached game's memory (internal offset)."""
+    return target.parse_addr(f"{int(cheat['addr']):X}", "u32")
 
 
 # --------------------------------------------------------------------------
@@ -1270,21 +1422,33 @@ def export_codes(target, cheats, library, title):
     """(text, file extension, how to use) for the attached system."""
     prof = getattr(target, "profile", "ps2")
     named = [c for c in cheats if not c.get("code")]
+    codes = [c for c in cheats if c.get("code") and c.get("system", "ps2") == prof]
     if prof == "gcwii":
         body = "\n\n".join(f"${c['name']}\n" + "\n".join(gecko_lines(c, library)) for c in named)
-        return body + "\n", ".txt", ("Dolphin: right-click the game > Properties > Gecko Codes > Add New. "
-                                     "Paste one code (the lines under its $Name), tick it, restart the game. "
-                                     "Turn on Settings > General > Enable Cheats first.")
+        body += "".join(f"\n\n${c['name']}\n" + "\n".join(code_patch_lines(c)) for c in codes)
+        if codes:
+            body += ("\n\n# Same code patches in Dolphin's own Patches format (Properties > Patches > Add):\n"
+                     + "\n".join(f"# ${c['name']}\n# " + dolphin_patch_lines(c)[0] for c in codes))
+        return body.strip("\n") + "\n", ".txt", (
+            "Dolphin: right-click the game > Properties > Gecko Codes > Add New. "
+            "Paste one code (the lines under its $Name), tick it, restart the game. "
+            "Turn on Settings > General > Enable Cheats first.")
     if prof == "psp":
         body = f"_S GAMEID\n_G {title}\n" + "\n".join(
-            f"_C1 {c['name']}\n" + "\n".join(cwcheat_lines(c, library)) for c in named)
+            f"_C1 {c['name']}\n" + "\n".join(cwcheat_lines(c, library) if not c.get("code") else code_patch_lines(c))
+            for c in named + codes)
         return body + "\n", ".ini", ("PPSSPP: Game settings > Cheats > Edit cheat file. Paste this in, "
                                      "replace GAMEID with your game ID (shown in PPSSPP's game info), "
                                      "save, then tick the cheats. Turn on Settings > System > Enable cheats.")
     if prof == "ps1":
-        body = "\n\n".join(f"[{c['name']}]\n" + "\n".join(gameshark_lines(c, library)) for c in named)
+        body = "\n\n".join(f"[{c['name']}]\n" + "\n".join(
+            gameshark_lines(c, library) if not c.get("code") else code_patch_lines(c)) for c in named + codes)
         return body + "\n", ".txt", ("DuckStation: Game Properties > Cheats > Add, set the type to "
                                      "GameShark, paste the lines under one [Name], enable it.")
+    if prof == "ps3" and codes and not named:
+        return rpcs3_patch_yml(codes, title), ".yml", (
+            "RPCS3: Manage > Game Patches, then drag this .yml file onto that window. Tick the patches, "
+            "click Save, restart the game.")
     return cheat_table(target, cheats, library, title), ".CT", (
         "Open this .CT in Cheat Engine with the game running. Ticked entries are frozen. "
         + ("Heap addresses change every time the game starts - re-find them next time, or use "
@@ -3098,3 +3262,88 @@ class HumanGroupTest:
         if self.found:
             return "found"
         return f"{len(self.left):,} left - about {max(1, len(self.left) - 1).bit_length()} more tries"
+
+
+# --------------------------------------------------------------------------
+# Top-speed finder: the better speed hack. Instead of multiplying the speed the game just worked out,
+# find the number it is capped at (max speed) and raise that - the game then goes faster by itself.
+# --------------------------------------------------------------------------
+class TopSpeedHunt(HumanGroupTest):
+    """
+    1. You stand still, press ], then run / floor it and keep going. Your speed value levels off at the
+       top speed; numbers that equal it (and didn't change) are the candidates.
+    2. Still running, the tool doubles half of them for a moment and watches your speed: if it climbs
+       way past the old top, the setting is in that half. Halve again - no questions, ~log2(N) rounds.
+    """
+
+    FACTORS = (1.0, 1 / 30, 1 / 60, 3.6, 1 / 3.6, 2.23694, 1 / 2.23694)   # same unit, per frame, km/h, mph
+    BOOST = 2.0
+    RISE = 1.35            # speed must pass old top x this to count
+
+    def __init__(self, speed, top, candidates):
+        super().__init__(candidates)
+        self.speed = speed               # (addr, type) of the speed value
+        self.top = float(top)
+        self.rounds = []                 # (group size, peak seen, verdict)
+
+    @staticmethod
+    def top_speed(samples):
+        s = np.abs(np.array([x for x in samples if x is not None and x == x], dtype=float))
+        if not len(s):
+            return 0.0
+        return float(np.percentile(s, 95))
+
+    @classmethod
+    def find_candidates(cls, still, moving, top, speed, tol=0.03, limit=6000):
+        """Numbers equal to the top speed (in a few common units) that didn't change while you ran."""
+        sp_addr, sp_vt = speed
+        types = ["float"] + ([sp_vt] if sp_vt != "float" and top >= 20 else [])   # small whole numbers are everywhere
+        found = []
+        for vt in types:
+            dt = np.dtype(TYPES[vt][0])
+            size = TYPES[vt][2]
+            n = (min(len(still), len(moving)) // size) * size
+            raw_a = still[:n].view(np.dtype(f"u{size}") if size > 1 else np.uint8)
+            raw_b = moving[:n].view(np.dtype(f"u{size}") if size > 1 else np.uint8)
+            with np.errstate(invalid="ignore", over="ignore"):
+                b = moving[:n].view(dt).astype(np.float64)
+            same = raw_a == raw_b
+            for rank, f in enumerate(cls.FACTORS if vt == "float" else (1.0,)):
+                want = top * f
+                if want <= 1e-6:
+                    continue
+                with np.errstate(invalid="ignore", over="ignore"):
+                    ok = same & np.isfinite(b) & (np.abs(b - want) <= max(tol * want, 0.0 if vt == "float" else 0.5))
+                for i in np.flatnonzero(ok)[:limit]:
+                    a = int(i) * size
+                    if a < sp_addr + TYPES[sp_vt][2] and sp_addr < a + size:
+                        continue                                   # the speed value itself
+                    found.append((rank, abs(float(b[i]) - want) / want, a, vt))
+        found.sort()
+        out, seen = [], set()
+        for _, _, a, vt in found:
+            if (a, vt) not in seen:
+                seen.add((a, vt))
+                out.append((a, vt))
+            if len(out) >= limit:
+                break
+        return out
+
+    def boosted(self, value, vt):
+        v = value * self.BOOST
+        return v if vt == "float" else int(round(v))
+
+    def judge(self, samples):
+        """Speeds seen while a group was boosted -> True (it's in there) / False / None (you stopped moving)."""
+        s = np.abs(np.array([x for x in samples if x is not None and x == x], dtype=float))
+        if len(s) < 3:
+            return None
+        peak = float(np.max(s[len(s) // 3:]))
+        if peak > self.top * self.RISE:
+            verdict = True
+        elif float(np.median(s)) < 0.6 * self.top:
+            verdict = None
+        else:
+            verdict = False
+        self.rounds.append((len(self.group or []), peak, verdict))
+        return verdict

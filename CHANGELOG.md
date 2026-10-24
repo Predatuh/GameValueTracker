@@ -1,5 +1,12 @@
 # What's new
 
+## 2026.10.23.3
+- Build my mod menu: type the whole menu in one sentence ("infinite ammo on L1+R1, god mode, super speed, spawn a tank"). It finds each value with you and puts every cheat in the in-game menu.
+- Better speed hack: "Find top speed" finds the game's own top-speed setting and raises it, so you really go 3x faster. Turning it off puts the normal speed back.
+- Code patches now work on RPCS3, Dolphin, PPSSPP and DuckStation too. "Try code patch live" tests one right away, and Export writes it in each emulator's format. RPCS3 patches are added to RPCS3's patch list by themselves.
+- New look, with a Dark mode switch at the top right. The AI brain box is always visible now.
+- Fixed: the ' key (NO) didn't answer questions in game outside the pitch predictor.
+
 ## 2026.10.23.2
 - Updates work with a public repo even if an old/wrong GitHub token is still filled in.
 

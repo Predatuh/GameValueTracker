@@ -9,6 +9,10 @@ A Windows tool that attaches to an emulator or a PC game and helps you:
 - **Auto-pinpoint** the right one with the Recorder, which graphs candidates as you play and picks the one that moves like the ball.
 - **Keep a library** of everything you found, grouped by category, with live view, edit and freeze.
 - **Power boost** multiplies the ball's speed the moment it's hit.
+- **Build my mod menu:** type the whole menu in one sentence ("infinite ammo on L1+R1, god mode, super speed, spawn a tank"). The tool finds every value with you, one at a time, and puts each cheat in the in-game menu.
+- **Better speed hack:** finds the game's own top-speed setting and raises it, so you aren't held back by the game easing toward its normal top speed.
+- **Code patches** (turn off the instruction that, say, takes away ammo) for PS2, PS3, GameCube/Wii, PSP and PS1, with export to each emulator's patch format. RPCS3 patches are added to RPCS3's patch list automatically.
+- **Light and dark theme** (the **Dark mode** box at the top right).
 - **Mod menu:** describe cheats in plain words ("infinite ammo on L1+R1"), then open an in-game menu with L3 + R1 and switch them on from the controller.
 - **Spawn menu:** find the ID of your car, weapon or item, pull the names from the game's files, and spawn anything from the list or the in-game menu.
 - **Tailored to each game:** the tool reads the game's name, works out what kind of game it is, shows only the tabs that fit, and keeps a separate library for every game.
@@ -19,7 +23,7 @@ A Windows tool that attaches to an emulator or a PC game and helps you:
 | System | Emulator | Addresses shown as | Cheat export |
 |---|---|---|---|
 | PS2 | PCSX2 | `0032A4C0` | `.pnach` |
-| PS3 | RPCS3 | `30012340` (PS3 address) | Cheat Engine table |
+| PS3 | RPCS3 | `30012340` (PS3 address) | Cheat Engine table, `patch.yml` (code patches) |
 | GameCube / Wii | Dolphin | `8034A2C0` | Gecko codes |
 | PSP | PPSSPP | `08912340` | CWCheat |
 | PS1 | DuckStation | `800C1234` | GameShark |
@@ -72,6 +76,10 @@ In **Cheats & mod menu**, type what you want, for example "infinite ammo on L1+R
 
 Click **Start mod menu**. In the game, **L3 + R1** (or **Insert**) opens the menu. Use the D-pad (or Numpad 8/2) to move, Cross/A (Numpad 5) to toggle or spawn, and Circle/B (Numpad 0) to go back. Each cheat's own hotkey works any time. Xbox-style controllers work directly; PS4/PS5 controllers work through Steam Input or DS4Windows. For other controllers, find the controller value in memory and click **Learn game pad...**.
 
+**Build the whole menu at once:** at the top of the tab, type something like "infinite ammo on L1+R1, god mode, super speed, moon jump, spawn a tank". Click **Plan it** to see what it understood. With an AI key, the AI plans it and knows the game. Then click **Build it**. The overlay takes you through finding each value, the same way the AI Coach does, and adds each cheat to the menu. Values already in your library are reused. If one won't come out, the overlay offers **Try again**, **Use the best guess** or **Skip this one**.
+
+**Code patches:** click **Add code patch...**, paste the address of the instruction that writes the value (the window tells you how to get it from your emulator's debugger), and keep the NOP it fills in. **Try code patch live** writes it into the running game; click it again to undo. **Export cheats...** makes it stick: `.pnach`, Gecko plus Dolphin patch lines, CWCheat or GameShark. For RPCS3, the tool reads the game's PPU hash from RPCS3's log and adds the patch to RPCS3 itself. In RPCS3, open **Manage > Game Patches**, tick the patch, click **Save** and restart the game.
+
 ## 6. Spawn menu
 
 Games keep the ID of the car you're in, the weapon you're holding or the item in a slot. Writing a different ID swaps in something else.
@@ -102,6 +110,8 @@ When a search ends with too many results, you get three choices:
 - **Speed hack test:** the same, but it multiplies the values by 3. Answer YES if you're super fast.
 
 Once it's found, **Speed hack ON/OFF** makes you 3x faster right away, capped at 3x your normal top speed so it can't run away. It's also added to Cheats & mod menu, where you can give it a hotkey or change the multiplier.
+
+**Find top speed (better hack):** select the speed value and click it. Stand still, press **]**, then run (or floor it) and keep going for 30 to 60 seconds. The tool measures your top speed, then looks for the game's own top-speed setting by itself: it doubles groups of numbers that match and watches whether you get faster. After that, **Top speed x3** is on, the game itself lets you go 3x faster, and it exports as a code. Turning it off puts the normal top speed back.
 
 ## 9. AI brain (Claude, Gemini, OpenAI, local models)
 

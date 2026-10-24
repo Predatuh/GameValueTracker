@@ -25,6 +25,11 @@ Brain: Claude by default; he wants to try Google Gemini too (brain.py supports i
     (loners first, stop at first CONTROLS); merge "do X, press ]" into the scan step; pulse hunts for
     jump/run/drive (rise and return); "Test with me" freeze binary search with ] = YES, ' = NO.
 11. OTA updates from this repo (updater.py): bump VERSION + CHANGELOG.md on every push.
+12. (Claude Code, Oct 23) "Build my mod menu" from one sentence (menubuilder.py), top-speed finder
+    (TopSpeedHunt - raises the game's max-speed setting instead of scaling current speed), code patches
+    for RPCS3/Dolphin/PPSSPP/DuckStation (live try + export; RPCS3 patch.yml installed into
+    patches/imported_patch.yml using the PPU hash from RPCS3.log), new flat look + dark mode (theme.py).
+    Fixed: ' (NO) never reached YES/NO questions outside the predictor.
 
 ## Verified vs NOT verified
 - Everything is tested against simulated games in numpy memory (tests/). All pass.
@@ -33,15 +38,18 @@ Brain: Claude by default; he wants to try Google Gemini too (brain.py supports i
   DuckStation (RAM export); XInput controller reading; reading game names from window titles
   (RPCS3 title format confirmed from a screenshot); PC-game pointer sizes; spawn file scanning on real
   disc images. When he reports a problem with these, they're the first suspects.
+- Also NOT verified on a real PC (new): RPCS3.log line formats (PPU hash / Serial / APP_VER regexes in
+  rpcs3_log_info) and whether RPCS3 picks up our appended imported_patch.yml; live code patches on
+  any emulator (recompilers cache code - Dolphin/PCSX2/RPCS3 likely ignore them, hence export);
+  the top-speed finder on a real game; how the new theme looks at his DPI scaling.
 - Real-world confirmed by him: PCSX2 attach, coach + auto-test finding ammo on RPCS3 (u16 33DC3DA0 in
   Mercenaries 2 was the real ammo; the u32 30D7Cxxx values were HUD copies).
 
 ## Open ideas / not done
-- Natural-language "build me a mod menu" is partly there (Describe a cheat parser + AI plans); a full
-  AI menu builder (AI writes the menu layout and cheats from one sentence) isn't.
-- Code patches (NOP an instruction) are PS2/pnach only; nothing for RPCS3/Dolphin yet.
-- Speed hack scales the CURRENT speed (capped at normal top speed x factor). Games that ease speed
-  toward a target don't go far past 3x - finding the max-speed constant would be the better hack.
+- Code patches still need the instruction address from the emulator's debugger (RPCS3 has no write
+  breakpoints - Ghidra / patch guides). Finding "what writes this value" automatically isn't done.
+- Top-speed finder only knows numbers equal to the measured top speed (a few unit factors); games
+  that compute the cap (e.g. from a stat) won't have one - the old scale hack is the fallback.
 - Spawning only swaps the ID of what you already have; true spawning needs calling game code.
 - The .exe build can't self-update; the .pyw launcher can.
 

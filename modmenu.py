@@ -255,11 +255,8 @@ BUTTON_WORDS = r"(?:l1|l2|l3|r1|r2|r3|x|cross|circle|square|triangle|start|selec
                r"lb|rb|lt|rt|ls|rs|f\d{1,2}|num\s?\d|numpad\s?\d|insert|home|end|delete|page ?up|page ?down)"
 
 
-def describe_cheat(text, names):
-    """
-    'infinite ammo on L1+R1', 'money +10000 when I press L2 + R2', 'double speed', 'health 999',
-    'set wanted level to 0 with F3'. names = library value names. Returns a cheat dict or raises.
-    """
+def split_hotkey(text):
+    """'infinite ammo on L1+R1' -> (['L1', 'R1'], ' infinite ammo ') - lower-cased text without the hotkey."""
     t = " " + text.lower().strip() + " "
     hotkey = []
     m = re.search(r"(?:on|with|when i (?:press|hold)|press|hold|hotkey|using)\s+(" + BUTTON_WORDS +
@@ -268,6 +265,15 @@ def describe_cheat(text, names):
         hotkey = parse_combo(m.group(1).replace("page up", "PageUp").replace("page down", "PageDown")
                              .replace("num ", "num"))
         t = t.replace(m.group(0), " ")
+    return hotkey, t
+
+
+def describe_cheat(text, names):
+    """
+    'infinite ammo on L1+R1', 'money +10000 when I press L2 + R2', 'double speed', 'health 999',
+    'set wanted level to 0 with F3'. names = library value names. Returns a cheat dict or raises.
+    """
+    hotkey, t = split_hotkey(text)
     best, score = None, 0
     for n in names:
         words = [w for w in re.split(r"[^a-z0-9]+", n.lower()) if len(w) > 2]
@@ -279,6 +285,13 @@ def describe_cheat(text, names):
     if not best:
         raise ValueError("Which value? Save it to the library first (AI Coach -> Save to library), "
                          "then use its name.")
+    mode, value = mode_and_value(t, best)
+    return {"name": pretty_name(text, best), "entry": best, "mode": mode,
+            "value": value, "hotkey": hotkey, "activator": None, "group": "Cheats"}
+
+
+def mode_and_value(t, about=""):
+    """What a description wants done: ('freeze' | 'scale' | 'set' | 'add' | 'multiply', value or None)."""
     num = re.search(r"([+-]?\d+(?:\.\d+)?)", t)
     value = float(num.group(1)) if num else None
     if re.search(r"\b(double|x2|2x)\b", t):
@@ -297,13 +310,17 @@ def describe_cheat(text, names):
         mode = "set" if not any(w in t for w in INF_WORDS) else "freeze"
     else:
         mode = "freeze"
-    speedy = re.search(r"(speed|velocity|fast|sprint|run|jump|gravity|power)", best.lower() + " " + t)
+    speedy = re.search(r"(speed|velocity|fast|sprint|run|jump|gravity|power)", about.lower() + " " + t)
     if mode == "multiply" and speedy:
         mode = "scale"                  # speed hacks must keep multiplying - the game recalculates speed
     elif re.search(r"\b(super ?fast|speed ?hack|faster|fast)\b", t) and speedy and mode in ("freeze", "set"):
         mode, value = "scale", (value if value and value > 1 else 3.0)
+    return mode, value
+
+
+def pretty_name(text, fallback=""):
+    """The description without its hotkey, capitalised - the cheat's name."""
     pretty = re.sub(r"\s+", " ", text.strip())
     pretty = re.sub(r"(?i)\s*(on|with|when i press|when i hold|press|hold)\s+" + BUTTON_WORDS +
-                    r"(\s*(\+|and|,)\s*" + BUTTON_WORDS + r")*\s*$", "", pretty).strip() or best
-    return {"name": pretty[:1].upper() + pretty[1:], "entry": best, "mode": mode,
-            "value": value, "hotkey": hotkey, "activator": None, "group": "Cheats"}
+                    r"(\s*(\+|and|,)\s*" + BUTTON_WORDS + r")*\s*$", "", pretty).strip() or fallback
+    return pretty[:1].upper() + pretty[1:]

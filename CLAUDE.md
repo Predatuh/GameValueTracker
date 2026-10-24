@@ -16,12 +16,18 @@ what isn't, and open ideas.
   them), Scanner / MultiScanner, AutoHunter + HitDetector (ball hunt), LaunchPredictor (pitch target),
   effect_test / GroupTester (which value is real), PulseHunter (rise-and-return: jump/run/drive),
   HumanGroupTest (freeze test with YES/NO), analyze_traces / analyze_events (recorder), fingerprint /
-  pointer_scan / relocate (values that move), cheat exporters (pnach, Gecko, CWCheat, GameShark, CE).
+  pointer_scan / relocate (values that move), cheat exporters (pnach, Gecko, CWCheat, GameShark, CE),
+  code patches for every emulator (`CODE_SYSTEMS`, `code_patch_lines`, RPCS3 patch.yml + log hash),
+  TopSpeedHunt (better speed hack: finds the max-speed setting).
 - `coach.py` - built-in brain (text -> recipe), recipe validation, Coach runner, prompt for AI brains.
 - `brain.py` - Claude / Gemini / OpenAI-compatible chat behind one `Brain.chat()`.
 - `gameinfo.py` - game name from emulator window titles, game type, per-genre tabs/examples/events.
 - `modmenu.py` - controller (XInput) / keyboard input, MenuEngine, "describe a cheat" parser.
 - `spawner.py` - finds ID->name tables in game folders / disc images.
+- `menubuilder.py` - "Build my mod menu": one sentence -> menu items (built-in parser or AI) -> MenuBuild
+  walks them; the GUI finds each with the coach and hooks in via `_build_hit` / `_build_stuck`.
+- `theme.py` - light/dark ttk styling (`apply`, `restyle` for new dialogs, `c("#070")` for the app's fixed
+  hint colours). The in-game overlays set `_theme_skip` and keep their own dark look.
 - `updater.py` - OTA updates from the GitHub repo (VERSION file + zipball). Bump `VERSION`
   (YYYY.MM.DD.N) and add a CHANGELOG.md entry with every change you push, or users won't get it.
 - `GameValueTracker.pyw` - launcher with no console window.

@@ -1,0 +1,19 @@
+# Program files the updater downloads one by one if the zip download is blocked (kept in sync by tests/test_updater.py)
+CHANGELOG.md
+CLAUDE.md
+GameValueTracker.pyw
+README.md
+VERSION
+brain.py
+build_exe.bat
+coach.py
+gameinfo.py
+menubuilder.py
+modmenu.py
+ps2_tracker.py
+ps2core.py
+run_tracker.bat
+spawner.py
+theme.py
+updater.py
+MANIFEST.txt

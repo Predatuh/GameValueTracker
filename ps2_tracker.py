@@ -4874,13 +4874,22 @@ class App:
                 if not quiet:
                     self.ui(messagebox.showwarning, APP_TITLE, f"Couldn't check for updates: {e}")
                 return
+            if up.token_dropped:
+                self.ui(self._forget_update_token)
             if avail:
                 self.ui(self._update_available, remote, local)
             elif not quiet:
                 self.ui(self.say, f"You're up to date (v{local}).")
         threading.Thread(target=work, daemon=True).start()
 
+    def _forget_update_token(self):
+        """GitHub rejected the saved token but the repo is public: don't send it again."""
+        self.settings["update_token"] = ""
+        self._save_settings(quiet=True)
+
     def _update_available(self, remote, local):
+        if getattr(self, "_updating", False):
+            return                       # a late check mustn't cover up "Downloading the update..."
         self._update_remote = remote
         self.update_lbl.configure(text=f"Update ready: v{remote}  (you have v{local})")
         self.update_bar.pack(fill="x", after=self.conn_label)
@@ -4894,6 +4903,9 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def update_now(self):
+        if getattr(self, "_updating", False):
+            return
+        self._updating = True
         up = self._updater()
         self.update_lbl.configure(text="Downloading the update...")
         if self.library or self.cheats:
@@ -4904,12 +4916,23 @@ class App:
             try:
                 changed, remote = up.update()
             except Exception as e:
-                self.ui(self.update_lbl.configure, {"text": f"Update failed: {str(e)[:120]}"})
+                self.ui(self._update_failed, str(e))
                 return
+            if up.token_dropped:
+                self.ui(self._forget_update_token)
             self.ui(self._update_done, changed, remote)
         threading.Thread(target=work, daemon=True).start()
 
+    def _update_failed(self, err):
+        self._updating = False
+        self.update_lbl.configure(text=f"Update failed: {err[:120]}  - click Update now to try again.")
+
     def _update_done(self, changed, remote):
+        if not changed:                  # nothing new after all: no restart (restarting would just loop)
+            self._updating = False
+            self.update_bar.pack_forget()
+            self.say(f"You're up to date (v{updater.local_version(APP_DIR)}).")
+            return
         self.update_lbl.configure(text=f"Updated to v{remote} ({len(changed)} files). Restarting...")
         self.root.update_idletasks()
         if getattr(self, "_no_restart", False):

@@ -1,5 +1,10 @@
 # What's new
 
+## 2026.10.23.4
+- Updates are fast and reliable: the check takes a second instead of a minute, and the download has backup routes when a GitHub server doesn't answer from your PC.
+- No more update loop: "Update now" can't be clicked twice, a late check can't cover "Downloading...", and it doesn't restart when there's nothing new.
+- A saved GitHub token that no longer works is skipped and forgotten (public repo, no token needed).
+
 ## 2026.10.23.3
 - Build my mod menu: type the whole menu in one sentence ("infinite ammo on L1+R1, god mode, super speed, spawn a tank"). It finds each value with you and puts every cheat in the in-game menu.
 - Better speed hack: "Find top speed" finds the game's own top-speed setting and raises it, so you really go 3x faster. Turning it off puts the normal speed back.

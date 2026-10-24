@@ -6,6 +6,7 @@ with the repo's; if the repo is newer it can download the repo, copy the program
 old ones (keeping your settings, libraries and logs), and restart.
 
 Private repo: give it a GitHub token that can read the repo (fine-grained token, "Contents: Read").
+Public repo: no token needed. A saved token that GitHub rejects is skipped (and the app forgets it).
 """
 import io
 import json
@@ -46,13 +47,46 @@ def is_newer(remote, local):
     return _key(remote) > _key(local)
 
 
+RAW = "https://raw.githubusercontent.com"
+CODELOAD = "https://codeload.github.com"
+
+
 class Updater:
-    def __init__(self, repo, token="", branch="main", api=API, app_dir=APP_DIR):
+    def __init__(self, repo, token="", branch="main", api=API, app_dir=APP_DIR, raw=RAW, codeload=CODELOAD):
         self.repo = (repo or "").strip().strip("/")
         self.token = (token or "").strip()
         self.branch = branch or "main"
         self.api = api.rstrip("/")
+        self.raw = raw.rstrip("/")
+        self.codeload = codeload.rstrip("/")
         self.app_dir = app_dir
+        self.token_dropped = False       # the saved token was rejected but the repo is public - forget it
+
+    def _public(self, url, timeout=10):
+        """Plain download with no token (public repo). Not counted against GitHub's API limit."""
+        req = urllib.request.Request(url, headers={"User-Agent": "GameValueTracker-updater"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    def _get(self, api_url, public_url, accept="application/vnd.github+json", timeout=10):
+        """
+        Public link first when there's no token (raw.githubusercontent.com answers fast even on PCs where
+        api.github.com keeps timing out); the API first when there is one (private repos).
+        """
+        if not self.token:
+            try:
+                return self._public(public_url, timeout)
+            except (urllib.error.URLError, OSError):
+                return self._req(api_url, accept, timeout)
+        try:
+            return self._req(api_url, accept, timeout)
+        except (RuntimeError, urllib.error.URLError, OSError) as first:
+            try:
+                data = self._public(public_url, timeout)
+            except (urllib.error.URLError, OSError):
+                raise RuntimeError(str(first)) from None
+            self.token_dropped = True
+            return data
 
     @property
     def ready(self):
@@ -68,28 +102,32 @@ class Updater:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
+            limited = e.code in (403, 429) and e.headers.get("X-RateLimit-Remaining") == "0"
             if e.code in (401, 403) and self.token:
                 # a public repo doesn't need a token - a stale / wrong one shouldn't block updates
                 headers.pop("Authorization", None)
                 try:
                     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
+                        self.token_dropped = True
                         return resp.read()
                 except urllib.error.HTTPError:
                     pass
+            if limited:
+                raise RuntimeError("GitHub's limit for update checks was reached - try again in an hour.") from None
             if e.code in (401, 403, 404):
                 raise RuntimeError(f"GitHub said {e.code}. Check the repo name and that your token can read it "
                                    "(private repo: fine-grained token with Contents: Read).") from None
             raise RuntimeError(f"GitHub error {e.code}") from None
 
     def remote_version(self):
-        raw = self._req(f"{self.api}/repos/{self.repo}/contents/VERSION?ref={self.branch}",
-                        accept="application/vnd.github.raw")
+        raw = self._get(f"{self.api}/repos/{self.repo}/contents/VERSION?ref={self.branch}",
+                        f"{self.raw}/{self.repo}/{self.branch}/VERSION", accept="application/vnd.github.raw")
         return raw.decode("utf-8", "replace").strip()
 
     def changelog(self):
         try:
-            raw = self._req(f"{self.api}/repos/{self.repo}/contents/CHANGELOG.md?ref={self.branch}",
-                            accept="application/vnd.github.raw")
+            raw = self._get(f"{self.api}/repos/{self.repo}/contents/CHANGELOG.md?ref={self.branch}",
+                            f"{self.raw}/{self.repo}/{self.branch}/CHANGELOG.md", accept="application/vnd.github.raw")
             return raw.decode("utf-8", "replace")
         except Exception:
             return ""
@@ -100,7 +138,36 @@ class Updater:
         return is_newer(remote, local), remote, local
 
     def download(self):
-        return self._req(f"{self.api}/repos/{self.repo}/zipball/{self.branch}", timeout=120)
+        """The repo as a zip. Several routes, quickest first - one blocked GitHub server doesn't stop updates."""
+        errors = []
+        routes = [lambda: self._public(f"{self.codeload}/{self.repo}/zip/refs/heads/{self.branch}", 30),
+                  lambda: self._req(f"{self.api}/repos/{self.repo}/zipball/{self.branch}", timeout=30),
+                  self._download_files]
+        if self.token:
+            routes.insert(0, routes.pop(1))
+        for route in routes:
+            try:
+                data = route()
+                if data:
+                    return data
+            except (RuntimeError, urllib.error.URLError, OSError, ValueError) as e:
+                errors.append(str(e))
+        raise RuntimeError("Couldn't download the update (" + "; ".join(errors)[:200] + ")")
+
+    def _download_files(self):
+        """Last resort: each program file from raw.githubusercontent.com (MANIFEST.txt lists them), as a zip."""
+        base = f"{self.raw}/{self.repo}/{self.branch}/"
+        names = [n.strip() for n in self._public(base + "MANIFEST.txt").decode("utf-8", "replace").splitlines()
+                 if n.strip() and not n.startswith("#")]
+        if not names:
+            raise ValueError("empty file list")
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w") as z:
+            for n in dict.fromkeys(names + ["VERSION"]):
+                if "/" in n or "\\" in n or ".." in n:
+                    continue
+                z.writestr("repo/" + n, self._public(base + n, 30))
+        return out.getvalue()
 
     def install(self, zip_bytes):
         """Copy the new program files in. Old ones go to _previous_version/ first. Returns files updated."""

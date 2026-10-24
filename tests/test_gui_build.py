@@ -162,6 +162,18 @@ assert str(app.conn_label.cget("foreground")) == dark["ok"]
 app.dark_var.set(False); app.toggle_theme(); pump(0.2)
 assert app.plan_text.cget("background") == theme.PALETTES["light"]["surface"]
 assert str(app.build_lbl.cget("foreground")) == theme.PALETTES["light"]["muted"]
+# ---- updates: a late check can't cover "Downloading...", and "nothing new" doesn't restart (no loop) ----
+app._update_available("2026.10.24.1", "2026.10.23.3"); pump(0.1)
+assert app.update_bar.winfo_manager() and "Update ready" in app.update_lbl.cget("text")
+app._updating = True
+app.update_lbl.configure(text="Downloading the update...")
+app._update_available("2026.10.24.1", "2026.10.23.3")
+assert app.update_lbl.cget("text") == "Downloading the update..."
+app._update_done([], "2026.10.24.1"); pump(0.1)
+assert not app._updating and not app.update_bar.winfo_manager() and "up to date" in app.status.get()
+app._updating = True
+app._update_failed("GitHub error 500")
+assert not app._updating and "try again" in app.update_lbl.cget("text")
 G["alive"] = False
 root.destroy()
 for p in (app_mod.SAVE_FILE, app_mod.SETTINGS_FILE):

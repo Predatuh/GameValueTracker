@@ -174,4 +174,24 @@ for k in range(4):
     ph.add(pre, mid, post)
 print("car speed pulse:", ph.log[-1], [(f"{a:08X}", vt) for a, vt in ph.candidates(6)])
 assert (SPD, "float") in ph.candidates()
+
+# typing the wrong number (e.g. the spare ammo instead of the bullets in the gun) must not lose the search
+m2 = np.zeros(0x100000, np.uint8)
+AM = 0x4440
+def put(v): m2[AM:AM + 2] = np.frombuffer(np.uint16(v).tobytes(), np.uint8)
+put(30)
+for k in range(20):                     # other things that happen to be 30 too
+    m2[0x8000 + 64 * k:0x8000 + 64 * k + 2] = np.frombuffer(np.uint16(30).tobytes(), np.uint8)
+co = C.Coach(C.plan_from_text("ammo"))
+co.apply(m2.copy(), 30)
+before = co.total
+put(27)
+try:
+    co.apply(m2.copy(), 210)            # the spare ammo - nothing is 210
+    raise AssertionError("should ask again")
+except ValueError as e:
+    assert "type it again" in str(e), e
+assert co.total == before and not co.failed and not co.done and co.pos == 1, (co.total, before, co.pos)
+co.apply(m2.copy(), 27)                 # the right number: carries on
+assert not co.failed and 0 < co.total < before and any(a == AM for vt, a, _ in co.results(m2))
 print("COACH TESTS PASSED")

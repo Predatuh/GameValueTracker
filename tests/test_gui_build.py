@@ -162,6 +162,24 @@ assert str(app.conn_label.cget("foreground")) == dark["ok"]
 app.dark_var.set(False); app.toggle_theme(); pump(0.2)
 assert app.plan_text.cget("background") == theme.PALETTES["light"]["surface"]
 assert str(app.build_lbl.cget("foreground")) == theme.PALETTES["light"]["muted"]
+# ---- jump hunts: pressing jump (Cross / A) on the controller counts as ], once per press ----
+class FakePad:
+    available, held = True, set()
+    def pressed(self): return set(self.held)
+marks = []
+app.pulse_mark = lambda: marks.append(time.time())
+app.pulsing, app.pulse_busy = True, False
+pad, tok = FakePad(), app.coach_token
+threading.Thread(target=app._pulse_pad_watch, args=(pad, tok), daemon=True).start()
+pump(0.2)
+pad.held = {"Cross"}; pump(0.3)              # held down: still one try
+pad.held = set(); pump(0.2)
+pad.held = {"Square"}; pump(0.2)             # other buttons do nothing
+pad.held = {"Cross"}; pump(0.2)
+assert len(marks) == 2, marks
+app.coach_token += 1; app.pulsing = False; pump(0.1)
+del app.pulse_mark
+
 # ---- updates: a late check can't cover "Downloading...", and "nothing new" doesn't restart (no loop) ----
 app._update_available("2026.10.24.1", "2026.10.23.3"); pump(0.1)
 assert app.update_bar.winfo_manager() and "Update ready" in app.update_lbl.cget("text")

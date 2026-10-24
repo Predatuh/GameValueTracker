@@ -138,4 +138,14 @@ assert BASE + 7 * STRIDE + OFFS["SPD"] in a7 and COPY + 7 * STRIDE + OFFS["SPD"]
 assert BUF + OFFS["SPD"] in a7
 lines = c.cheat_lines({"name": "x", "entry": "R", "field": "SPD", "record": 7, "value": 99}, [ent])
 assert len(lines) == 3
+
+# pointers (addresses the game follows) are never poked by the tests - that crashes games
+class _PT:
+    profile = "ps3"
+    regions = [c.Region(0, 0x300000000, 0x10000000, 0, "main"), c.Region(0x10000000, 0x330000000, 0x1000000, 0x30000000, "")]
+assert c.looks_like_pointer(_PT, 0x30001230, "u32") and c.looks_like_pointer(_PT, 0x00456780, "u32")
+assert not c.looks_like_pointer(_PT, 100, "u32") and not c.looks_like_pointer(_PT, 0x30001231, "u32")
+assert not c.looks_like_pointer(_PT, 0x30001230, "u16") and not c.looks_like_pointer(_PT, 0x7FFF0000, "u32")
+_PT.profile = "pc"
+assert not c.looks_like_pointer(_PT, 0x30001230, "u32")
 print("COPY TESTS PASSED")

@@ -706,6 +706,25 @@ def fa(off, vtype=None):
         return f"{off:08X}"
 
 
+def looks_like_pointer(target, value, vtype):
+    """
+    A 4-byte value that holds an address inside the game's own memory - the game follows it, so changing
+    it even for a moment usually crashes the game. Tests must never touch these.
+    """
+    if vtype != "u32" or value is None or getattr(target, "profile", "") in ("pc", "pc_be"):
+        return False
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return False
+    if v < 0x10000 or v % 4:
+        return False
+    for r in getattr(target, "regions", None) or ():
+        if r.guest <= v < r.guest + r.size:
+            return True
+    return False
+
+
 def pa(text, vtype=None):
     """Parse an address the user typed / the tool displayed back to an internal offset."""
     t = _ACTIVE

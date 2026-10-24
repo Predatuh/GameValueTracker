@@ -373,19 +373,21 @@ def id_recipe(kind):
 
 def _counter_recipe(word, cat, lose, gain, types, n):
     thing = word[:1].upper() + word[1:]
+    # games often show two numbers (in the gun / spare): every step must use the same one
+    which = " - the bullets in the gun, if it shows two numbers" if cat == "Weapons" else ""
     loop = []
     if lose:
-        loop.append(_step(f"Change your {word}: {lose}. Then type the new number.", "exact",
+        loop.append(_step(f"Change your {word}: {lose}. Then type the new number{which}.", "exact",
                           value="ask", until="key"))
     if gain:
-        loop.append(_step(f"Now {gain}. Then type the new number.", "exact", value="ask", until="key"))
+        loop.append(_step(f"Now {gain}. Then type the new number{which}.", "exact", value="ask", until="key"))
     if not loop:
         loop.append(_step(f"Change your {word}, then type the new number.", "exact", value="ask",
                           until="key"))
     if n is not None:
         steps = [_step(f"Looking for {word} = {n}.", "exact", value=n)]
     else:
-        steps = [_step(f"What number does the game show for {word} right now? Type it.", "exact",
+        steps = [_step(f"What number does the game show for {word} right now{which}? Type it.", "exact",
                        value="ask", until="key")]
     return {"title": thing, "category": cat, "types": types, "steps": steps, "loop": loop,
             "target": 3, "max_loops": 6}
@@ -656,7 +658,21 @@ class Coach:
                 value = typed
             if op in ("exact", "greater", "less") and value is None:
                 raise ValueError("This step needs the number from the game.")
-            self._scan(snap, op, value)
+            if step.get("value") == "ask" and self.started:
+                # a typo / the wrong one of two numbers on screen must not throw the whole search away
+                saved = {vt: (sc.idx, sc.prev, sc.count, sc.scans) for vt, sc in self.scanners.items()}
+                self._scan(snap, op, value)
+                if self.total == 0:
+                    for vt, (idx, prev, count, scans) in saved.items():
+                        sc = self.scanners[vt]
+                        sc.idx, sc.prev, sc.count, sc.scans = idx, prev, count, scans
+                    self.failed = self.done = False
+                    self.retyped = getattr(self, "retyped", 0) + 1
+                    raise ValueError(f"Nothing in memory is {value:g} now - check the number and type it again "
+                                     "(if the game shows two numbers, type the same one as before, e.g. the "
+                                     "bullets in your gun, not the spare ammo). Or press Skip.")
+            else:
+                self._scan(snap, op, value)
             self.history.append((step["say"], op, value, self.total))
         self._advance()
 

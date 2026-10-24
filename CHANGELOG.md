@@ -1,5 +1,11 @@
 # What's new
 
+## 2026.10.23.5
+- Typing a number that matches nothing no longer ends the search with "Lost it": the step is undone and you're asked to type it again.
+- The ammo steps say which number to type when the game shows two (the bullets in the gun, not the spare ammo).
+- Fewer game crashes: the auto-test and the speed hack test never change a value that is really a memory address the game follows.
+- Jump search: just press your jump button (Cross / A) on the controller - no need to press ] first.
+
 ## 2026.10.23.4
 - Updates are fast and reliable: the check takes a second instead of a minute, and the download has backup routes when a GitHub server doesn't answer from your PC.
 - No more update loop: "Update now" can't be clicked twice, a late check can't cover "Downloading...", and it doesn't restart when there's nothing new.

@@ -723,8 +723,11 @@ class App:
         try:
             co.apply(self.snap(), typed)
         except ValueError as e:
-            self.overlay.flash(str(e))
-            self._coach_next()
+            self._coach_next()                       # same step again
+            if self.coach_wait == "number" and len(str(e)) > 60:
+                self.overlay.set(str(e), co.current()["say"], ask=True)
+            else:
+                self.overlay.flash(str(e))
             return
         if co.started and co.total <= 200:
             self._show_coach_results(co.results(self.snap()))
@@ -823,13 +826,38 @@ class App:
         self.pulser = core.PulseHunter(p["mid"], p["post"], max(3, self.plan.get("target", 6)))
         self.pulsing = True
         self.pulse_busy = False
+        self._pad_jump = False
+        if p["kind"] == "jump":
+            pad = modmenu.XInputPad()
+            if pad.available:
+                self._pad_jump = True
+                threading.Thread(target=self._pulse_pad_watch, args=(pad, self.coach_token), daemon=True).start()
         self._pulse_prompt()
+
+    PAD_JUMP = ("Cross",)                 # Cross on PS pads = A on Xbox pads (XInput reports both as A)
+
+    def _pulse_pad_watch(self, pad, tok):
+        """Jump hunts: pressing the jump button on the controller starts a try - no ] needed."""
+        was = False
+        while tok == self.coach_token:
+            try:
+                now = bool(set(self.PAD_JUMP) & pad.pressed())
+            except Exception:
+                return
+            if now and not was and self.pulsing and not getattr(self, "pulse_busy", False):
+                self.ui(self.pulse_mark)
+            was = now
+            time.sleep(0.01)
 
     def _pulse_prompt(self, extra=""):
         p, ph = self.plan["pulse"], self.pulser
         sub = (f"Try {ph.pulses + 1}  ·  {ph.count:,} candidates left" if ph.pulses else
                "Do it 4-6 times. Stand completely still between tries.")
-        self.overlay.set(p["say"], (extra + "   " + sub).strip(), done=True)
+        say = p["say"]
+        if getattr(self, "_pad_jump", False):
+            say = ("Stand still, then JUMP with Cross / A - that's all, I see the button. Land and stand still "
+                   "until it says go again. (Keyboard: press ] right before you jump.)")
+        self.overlay.set(say, (extra + "   " + sub).strip(), done=True)
         self.coach_status.configure(text=sub)
 
     def pulse_mark(self):
@@ -981,6 +1009,8 @@ class App:
                 else:
                     for a, vt in group:
                         cur = self.ps2.read(a, vt)
+                        if core.looks_like_pointer(self.ps2, cur, vt):
+                            continue                   # multiplying an address crashes the game
                         if cur is None or cur != cur:
                             continue
                         lw = last.get((a, vt))
@@ -1891,6 +1921,17 @@ class App:
         physics = plan.get("category") in ("Vehicle", "Running") and not any(
             s.get("scan") == "exact" for s in plan.get("steps", []) + plan.get("loop", []))
         rows = list(self.coach_rows.values())[:12 if physics else 40]
+        # never poke a pointer (an address the game follows) - that's what crashes games mid-test
+        risky = [(vt, a) for vt, a in rows if core.looks_like_pointer(self.ps2, self.ps2.read(a, vt), vt)]
+        rows = [r for r in rows if r not in risky]
+        if not rows:
+            msg = "Every result looks like a memory address the game uses (changing those crashes games) - " \
+                  "the real value isn't among them. Try 'Keep narrowing' or 'Start over'."
+            self.overlay.set(msg, "", close=True)
+            self.coach_status.configure(text=msg)
+            if self.builder is not None:
+                self._build_stuck(msg)
+            return
         # copies tend to sit in a cluster (render / HUD buffers); the real one is usually off on its own:
         # test the loners first so we can stop early
         rows.sort(key=lambda r: sum(1 for x in rows if x is not r and abs(x[1] - r[1]) < 0x2000))
@@ -2029,6 +2070,8 @@ class App:
                     v = self.ps2.read(a, vt)
                     if v is None or v != v:
                         continue
+                    if core.looks_like_pointer(self.ps2, v, vt):
+                        continue                    # never poke a pointer
                     same = abs(v - v0) <= max(0.5, 0.01 * abs(v0))
                     scaled = v0 and any(abs(v - v0 * k) <= 0.01 * abs(v0 * k) for k in (100, 0.01, 10, 0.1))
                     if (same or scaled) and abs(v) > 0:

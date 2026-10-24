@@ -5,6 +5,9 @@ memory (AI coach, scanner, recorder), and turns them into cheats, a live mod men
 The owner (Tanner) uses it on Windows with PCSX2 and RPCS3; he is not a programmer - keep the UI plain-
 spoken and do the work for him.
 
+Start with `docs/HANDOFF.md` - the history of how this was built, what's verified on a real PC and
+what isn't, and open ideas.
+
 ## Files
 - `ps2_tracker.py` - the whole GUI (App class, Overlay, MenuOverlay, HELP_TEXT). Thread -> Tk calls
   MUST go through `self.ui(fn, *args)` (queue pumped every 50 ms).
